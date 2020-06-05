@@ -1,0 +1,26 @@
+--- a/scripts/plot/util/private/__print_parse_opts__.m.orig	2019-11-07 18:09:14.525486484 +0100
++++ b/scripts/plot/util/private/__print_parse_opts__.m	2019-11-07 18:25:40.289123815 +0100
+@@ -494,7 +494,10 @@
+     endif
+     n = 0;
+     while (n < numel (gs_binaries) && isempty (ghostscript_binary))
+-      ghostscript_binary = file_in_path (getenv ("PATH"), gs_binaries{++n});
++      %ghostscript_binary = file_in_path (getenv ("PATH"), gs_binaries{++n});
++      if (! isempty (file_in_path (getenv ("PATH"), gs_binaries{++n})))
++        ghostscript_binary = gs_binaries{n};
++      endif
+     endwhile
+   endif
+ 
+@@ -520,7 +523,10 @@
+     endif
+     n = 0;
+     while (n < numel (binaries) && isempty (data.(binary).bin))
+-      data.(binary).bin = file_in_path (getenv ("PATH"), binaries{++n});
++      %data.(binary).bin = file_in_path (getenv ("PATH"), binaries{++n});
++      if (! isempty (file_in_path (getenv ("PATH"), binaries{++n})))
++        data.(binary).bin = binaries{n};
++      endif
+     endwhile
+   endif
+ 

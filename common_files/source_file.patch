@@ -1,0 +1,16 @@
+Patch 'source_file' so that 'lasterror' reports the location of parsing errors
+
+--- a/libinterp/parse-tree/oct-parse.cc	2019-11-11 18:16:34.000000000 +0100
++++ b/libinterp/parse-tree/oct-parse.cc	2019-11-11 18:33:26.000000000 +0100
+@@ -9030,8 +9030,9 @@
+           }
+         catch (execution_exception& e)
+           {
+-            error (e, "source: error sourcing file '%s'",
+-                   file_full_name.c_str ());
++            /* error (e, "source: error sourcing file '%s'",
++                   file_full_name.c_str ()); */
++             throw e;
+           }
+       }
+ 

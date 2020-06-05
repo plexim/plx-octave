@@ -1,0 +1,77 @@
+diff -r 7f8ff4800eef src/qtbase.mk
+--- src/qtbase.mk	Thu Aug 09 22:26:37 2018 -0400
++++ src/qtbase.mk	Mon Nov 11 18:49:00 2019 +0100
+@@ -8,7 +8,8 @@
+ $(PKG)_SUBDIR   := $(PKG)-everywhere-src-$($(PKG)_VERSION)
+ $(PKG)_FILE     := $(PKG)-everywhere-src-$($(PKG)_VERSION).tar.xz
+ $(PKG)_URL      := http://download.qt.io/official_releases/qt/$(call SHORT_PKG_VERSION,$(PKG))/$($(PKG)_VERSION)/submodules/$($(PKG)_FILE)
+-$(PKG)_DEPS     := dbus double-conversion freetds freetype fontconfig jpeg libjbig libpng libproxy pcre2 postgresql sqlite zlib
++#$(PKG)_DEPS     := dbus double-conversion freetds freetype fontconfig jpeg libjbig libpng libproxy pcre2 postgresql sqlite zlib
++$(PKG)_DEPS     := double-conversion freetype jpeg libjbig libpng pcre2 sqlite zlib
+ 
+ $(PKG)_CONFIGURE_CROSS_COMPILE_OPTION :=
+ $(PKG)_CONFIGURE_DATABASE_OPTION :=
+@@ -25,12 +26,12 @@
+   $(PKG)_DEPS += mesa
+ endif
+ ifeq ($(MXE_WINDOWS_BUILD),yes)
+-  ifeq ($(ENABLE_WINDOWS64),yes)
+-    $(PKG)_DEPS += icu4c
+-    $(PKG)_CONFIGURE_OPTS += -icu
+-  else
++#  ifeq ($(ENABLE_WINDOWS64),yes)
++#    $(PKG)_DEPS += icu4c
++#    $(PKG)_CONFIGURE_OPTS += -icu
++#  else
+     $(PKG)_CONFIGURE_OPTS += -no-icu
+-  endif
++#  endif
+ else
+   $(PKG)_DEPS += icu4c
+   $(PKG)_CONFIGURE_OPTS += -icu
+@@ -61,13 +62,13 @@
+ endif
+ 
+ ## These are needed whether cross compiling or not.
+-ifeq ($(MXE_WINDOWS_BUILD),yes)
+-  $(PKG)_CONFIGURE_ENV := PSQL_LIBS="-lpq -lsecur32 -lws2_32"
+-  $(PKG)_CONFIGURE_DATABASE_OPTION += \
+-    -system-sqlite -plugin-sql-sqlite -plugin-sql-odbc -plugin-sql-psql
+-else
+-  $(PKG)_CONFIGURE_DATABASE_OPTION += -system-sqlite
+-endif
++#ifeq ($(MXE_WINDOWS_BUILD),yes)
++#  $(PKG)_CONFIGURE_ENV := PSQL_LIBS="-lpq -lsecur32 -lws2_32"
++#  $(PKG)_CONFIGURE_DATABASE_OPTION += \
++#    -system-sqlite -plugin-sql-sqlite -plugin-sql-odbc -plugin-sql-psql
++#else
++#  $(PKG)_CONFIGURE_DATABASE_OPTION += -system-sqlite
++#endif
+ 
+ ifeq ($(MXE_NATIVE_BUILD),yes)
+   $(PKG)_CONFIGURE_INCLUDE_OPTION += -I '$(HOST_INCDIR)'
+@@ -122,13 +123,12 @@
+             -system-libpng \
+             -system-libjpeg \
+             -system-sqlite \
+-            -fontconfig \
+             -system-freetype \
+             -system-pcre \
+             -system-doubleconversion \
+             -no-openssl \
+-            -dbus-linked \
+-            -libproxy \
++            -no-dbus \
++            -no-libproxy \
+             -no-pch \
+             -v \
+             $($(PKG)_CONFIGURE_OPTS)
+@@ -142,8 +142,6 @@
+       mv '$(HOST_PREFIX)'/qt5/bin/Qt5Concurrent.dll '$(HOST_BINDIR)'/Qt5Concurrent.dll; \
+       mv '$(HOST_PREFIX)'/qt5/bin/Qt5Cored.dll '$(HOST_BINDIR)'/Qt5Cored.dll; \
+       mv '$(HOST_PREFIX)'/qt5/bin/Qt5Core.dll '$(HOST_BINDIR)'/Qt5Core.dll; \
+-      mv '$(HOST_PREFIX)'/qt5/bin/Qt5DBusd.dll '$(HOST_BINDIR)'/Qt5DBusd.dll; \
+-      mv '$(HOST_PREFIX)'/qt5/bin/Qt5DBus.dll '$(HOST_BINDIR)'/Qt5DBus.dll; \
+       mv '$(HOST_PREFIX)'/qt5/bin/Qt5Guid.dll '$(HOST_BINDIR)'/Qt5Guid.dll; \
+       mv '$(HOST_PREFIX)'/qt5/bin/Qt5Gui.dll '$(HOST_BINDIR)'/Qt5Gui.dll; \
+       mv '$(HOST_PREFIX)'/qt5/bin/Qt5Networkd.dll '$(HOST_BINDIR)'/Qt5Networkd.dll; \

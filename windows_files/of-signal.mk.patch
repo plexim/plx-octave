@@ -1,0 +1,23 @@
+diff -r 7f8ff4800eef src/of-signal.mk
+--- a/src/of-signal.mk	Thu Aug 09 22:26:37 2018 -0400
++++ b/src/of-signal.mk	Tue Nov 26 12:41:05 2019 +0100
+@@ -3,13 +3,16 @@
+ 
+ PKG             := of-signal
+ $(PKG)_IGNORE   :=
+-$(PKG)_VERSION  := 1.4.0
+-$(PKG)_CHECKSUM := 2a2e8d19e28ff63df89130cc1bb832b477ff4587
++#$(PKG)_VERSION  := 1.4.0
++$(PKG)_VERSION  := 1.4.1
++#$(PKG)_CHECKSUM := 2a2e8d19e28ff63df89130cc1bb832b477ff4587
++$(PKG)_CHECKSUM := 67519c28868659a54363420d5bfc2621c31f8fdb
+ $(PKG)_REMOTE_SUBDIR := 
+ $(PKG)_SUBDIR   := signal-$($(PKG)_VERSION)
+ $(PKG)_FILE     := signal-$($(PKG)_VERSION).tar.gz
+ $(PKG)_URL      := '$(OCTAVE_FORGE_BASE_URL)/$($(PKG)_FILE)/download'
+-$(PKG)_DEPS     := of-specfun of-control
++#$(PKG)_DEPS     := of-specfun of-control
++$(PKG)_DEPS     := of-control
+ 
+ ifeq ($(ENABLE_BINARY_PACKAGES),yes)
+     $(PKG)_DEPS += $(OCTAVE_TARGET)

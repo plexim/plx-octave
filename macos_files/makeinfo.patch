@@ -1,0 +1,57 @@
+--- makeinfo	2019-11-19 11:17:37.000000000 +0100
++++ makeinfo	2019-11-19 11:25:28.000000000 +0100
+@@ -54,9 +54,9 @@
+   my $updir = File::Spec->updir();
+ 
+   # These are substituted by the Makefile to create "texi2any".
+-  my $datadir = '__INSTROOT__/share';
++  my $datadir = File::Spec->catdir($ENV{'OCTAVE_HOME'}, 'share');
+   my $package = 'texinfo';
+-  my $packagedir = '__INSTROOT__/lib/texinfo';
++  my $packagedir = File::Spec->catdir($ENV{'OCTAVE_HOME'}, 'lib/texinfo');
+ 
+   if ($datadir eq '@' .'datadir@'
+       or defined($ENV{'TEXINFO_DEV_SOURCE'})
+@@ -116,37 +116,16 @@
+ 
+ # set by configure, prefix for the sysconfdir and so on
+ # This could be used in the eval
+-my $prefix = '__INSTROOT__';
++my $prefix = $ENV{'OCTAVE_HOME'};
+ my $datarootdir;
+ my $sysconfdir;
+ my $pkgdatadir;
+ my $datadir;
+ 
+-my $fallback_prefix = File::Spec->catdir(File::Spec->rootdir(), 'usr', 'local');
+-
+-# We need to eval as $prefix has to be expanded. However when we haven't
+-# run configure @sysconfdir will be expanded as an array, thus we verify
+-# whether configure was run or not
+-if ('__INSTROOT__/etc' ne '@' . 'sysconfdir@') {
+-  $sysconfdir = eval '"__INSTROOT__/etc"';
+-} else {
+-  $sysconfdir = File::Spec->catdir($fallback_prefix, 'etc');
+-}
+-
+-if ('__INSTROOT__/share' ne '@' . 'datarootdir@') {
+-  $datarootdir = eval '"__INSTROOT__/share"';
+-} else {
+-  $datarootdir = File::Spec->catdir($fallback_prefix, 'share');
+-}
+-
+-if ('__INSTROOT__/share' ne '@' . 'datadir@' and 'texinfo' ne '@' . 'PACKAGE@') {
+-  $datadir = eval '"__INSTROOT__/share"';
+-  my $package = 'texinfo';
+-  $pkgdatadir = File::Spec->catdir($datadir, $package);
+-} else {
+-  $datadir = File::Spec->catdir($fallback_prefix, 'share');
+-  $pkgdatadir = File::Spec->catdir($datadir, 'texinfo');
+-}
++$sysconfdir = File::Spec->catdir($prefix, 'etc');
++$datarootdir = File::Spec->catdir($prefix, 'share');
++$datadir = File::Spec->catdir($prefix, 'share');
++$pkgdatadir = File::Spec->catdir($datadir, 'texinfo');
+ 
+ # work-around in case libintl-perl do not do it itself
+ # see http://www.gnu.org/software/gettext/manual/html_node/The-LANGUAGE-variable.html#The-LANGUAGE-variable

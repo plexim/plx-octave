@@ -1,0 +1,27 @@
+# HG changeset patch
+# User PRN
+# Date 1573943856 -3600
+#      Sat Nov 16 23:37:36 2019 +0100
+# Node ID 75f344fe775805f67966c8a3b4faa5af15f00c15
+# Parent  6c97d6624aaf957eeabee1ff299a4643e8c6c0cf
+pkg.m: echo file paths relative to OCTAVE_HOME (bug #51632)
+
+* installed_packages.m: replace OCTAVE_HOME part of package dirs with '<OCTAVE_HOME>'
+
+diff -r 6c97d6624aaf -r 75f344fe7758 scripts/pkg/private/installed_packages.m
+--- a/scripts/pkg/private/installed_packages.m	Sat Nov 16 23:32:42 2019 +0100
++++ b/scripts/pkg/private/installed_packages.m	Sat Nov 16 23:37:36 2019 +0100
+@@ -132,10 +132,13 @@
+     ## Print the packages.
+     format = sprintf ("%%%ds %%1s| %%%ds | %%s\n",
+                       max_name_length, max_version_length);
++    ptn = ["^" strrep(canonicalize_file_name (OCTAVE_HOME), '\', '\\')];
+     for i = 1:num_packages
+       cur_name = installed_pkgs_lst{i}.name;
+       cur_version = installed_pkgs_lst{i}.version;
+       cur_dir = installed_pkgs_lst{i}.dir;
++      ## Replace global prefix by OCTAVE_HOME if appropriate
++      cur_dir = regexprep (cur_dir, ptn, "<OCTAVE_HOME>");
+       if (length (cur_dir) > max_dir_length)
+         first_char = length (cur_dir) - max_dir_length + 4;
+         first_filesep = strfind (cur_dir(first_char:end), filesep ());

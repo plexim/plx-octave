@@ -1,0 +1,179 @@
+
+# HG changeset patch
+# User Philip Nienhuis <prnienhuis@users.sf.net>
+# Date 1572119501 -7200
+# Node ID 0cedd1e23c1f00c38e129682b76ef49d8e026793
+# Parent  6f9544b3a72b6ae57b8d02165801fec93dc242df
+Adapt path styles for pkg.m on Windows (bug #57083)
+Change 8.3-style paths into LFN paths before writing octave-packages files
+
+* standardize_paths.m: New function that converts 8.3-style paths to LFN paths with
+canonicalize_file_name().
+
+* scripts/pkg/module.mk: Add standardize_paths.m to build system.
+
+* pkg.m, install.m, uninstall.m: On Windows (ispc == true) platforms, call
+standardize_paths to create unique pathnames for globalk_packages and
+local_packages lists.
+
+* installed_packages.m: Remove unnecessary calls to strrep() which were
+previously used to standardize pathnames.
+
+diff --git a/scripts/pkg/module.mk b/scripts/pkg/module.mk
+--- a/scripts/pkg/module.mk
++++ b/scripts/pkg/module.mk
+@@ -8,6 +8,7 @@
+   %reldir%/private/default_prefix.m \
+   %reldir%/private/describe.m \
+   %reldir%/private/dirempty.m \
++  %reldir%/private/standardize_paths.m \
+   %reldir%/private/get_description.m \
+   %reldir%/private/get_forge_download.m \
+   %reldir%/private/get_forge_pkg.m \
+diff --git a/scripts/pkg/pkg.m b/scripts/pkg/pkg.m
+--- a/scripts/pkg/pkg.m
++++ b/scripts/pkg/pkg.m
+@@ -563,6 +563,10 @@
+         global_packages = rebuild (prefix, archprefix, global_list, files,
+                                    verbose);
+         global_packages = save_order (global_packages);
++        if (ispc)
++          ## On Windows ensure LFN paths are saved rather than 8.3 style paths
++          global_packages = standardize_paths (global_packages);
++        endif
+         save (global_list, "global_packages");
+         if (nargout)
+           local_packages = global_packages;
+@@ -571,6 +575,9 @@
+         local_packages = rebuild (prefix, archprefix, local_list, files,
+                                   verbose);
+         local_packages = save_order (local_packages);
++        if (ispc)
++          local_packages = standardize_paths (local_packages);
++        endif
+         save (local_list, "local_packages");
+         if (! nargout)
+           clear ("local_packages");
+diff --git a/scripts/pkg/private/install.m b/scripts/pkg/private/install.m
+--- a/scripts/pkg/private/install.m
++++ b/scripts/pkg/private/install.m
+@@ -257,11 +257,18 @@
+     if (global_install)
+       idx = setdiff (1:length (global_packages), packages_to_uninstall);
+       global_packages = save_order ({global_packages{idx}, descriptions{:}});
++      if (ispc)
++        ## On Windows ensure LFN paths are saved rather than 8.3 style paths
++        global_packages = standardize_paths (global_packages);
++      endif
+       save (global_list, "global_packages");
+       installed_pkgs_lst = {local_packages{:}, global_packages{:}};
+     else
+       idx = setdiff (1:length (local_packages), packages_to_uninstall);
+       local_packages = save_order ({local_packages{idx}, descriptions{:}});
++      if (ispc)
++        local_packages = standardize_paths (local_packages);
++      endif
+       save (local_list, "local_packages");
+       installed_pkgs_lst = {local_packages{:}, global_packages{:}};
+     endif
+diff --git a/scripts/pkg/private/installed_packages.m b/scripts/pkg/private/installed_packages.m
+--- a/scripts/pkg/private/installed_packages.m
++++ b/scripts/pkg/private/installed_packages.m
+@@ -59,23 +59,23 @@
+ 
+   ## Now check if the package is loaded.
+   ## FIXME: Couldn't dir_in_loadpath() be used here?
+-  tmppath = strrep (path (), '\', '/');
++  tmppath = path ();
+   for i = 1:numel (installed_pkgs_lst)
+-    if (strfind (tmppath, strrep (installed_pkgs_lst{i}.dir, '\', '/')))
++    if (strfind (tmppath, installed_pkgs_lst{i}.dir))
+       installed_pkgs_lst{i}.loaded = true;
+     else
+       installed_pkgs_lst{i}.loaded = false;
+     endif
+   endfor
+   for i = 1:numel (local_packages)
+-    if (strfind (tmppath, strrep (local_packages{i}.dir, '\', '/')))
++    if (strfind (tmppath, local_packages{i}.dir))
+       local_packages{i}.loaded = true;
+     else
+       local_packages{i}.loaded = false;
+     endif
+   endfor
+   for i = 1:numel (global_packages)
+-    if (strfind (tmppath, strrep (global_packages{i}.dir, '\', '/')))
++    if (strfind (tmppath, global_packages{i}.dir))
+       global_packages{i}.loaded = true;
+     else
+       global_packages{i}.loaded = false;
+diff --git a/scripts/pkg/private/standardize_paths.m b/scripts/pkg/private/standardize_paths.m
+new file mode 100644
+--- /dev/null
++++ b/scripts/pkg/private/standardize_paths.m
+@@ -0,0 +1,40 @@
++## Copyright (C) 2019 Philip Nienhuis
++##
++## This file is part of Octave.
++##
++## Octave is free software: you can redistribute it and/or modify it
++## under the terms of the GNU General Public License as published by
++## the Free Software Foundation, either version 3 of the License, or
++## (at your option) any later version.
++##
++## Octave is distributed in the hope that it will be useful, but
++## WITHOUT ANY WARRANTY; without even the implied warranty of
++## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++## GNU General Public License for more details.
++##
++## You should have received a copy of the GNU General Public License
++## along with Octave; see the file COPYING.  If not, see
++## <https://www.gnu.org/licenses/>.
++
++## -*- texinfo -*-
++## @deftypefn {} {@var{pkg_list} =} standardize_paths (@var{pkg_list})
++## Convert pathnames in various representations to unique strings.
++##
++## The input @var{pkg_list} must be a cell array of strings.
++##
++## This function is particularly necessary on Windows platforms where pathnames
++## may differ in case (@file{file1} vs.@: @file {FILE1}), file separator
++## (@samp{\} vs.@: @samp{/}), and format (@file{A~spaces.txt} (8.3 convention)
++## vs.@: @file{A filename with spaces.txt}).
++##
++## @seealso{canonicalize_file_name}
++## @end deftypefn
++
++function pkg_list = standardize_paths (pkg_list)
++
++  for i = 1:numel (pkg_list)
++    pkg_list{i}.dir = canonicalize_file_name (pkg_list{i}.dir);
++    pkg_list{i}.archprefix = canonicalize_file_name (pkg_list{i}.archprefix);
++  endfor
++
++endfunction
+diff --git a/scripts/pkg/private/uninstall.m b/scripts/pkg/private/uninstall.m
+--- a/scripts/pkg/private/uninstall.m
++++ b/scripts/pkg/private/uninstall.m
+@@ -137,6 +137,10 @@
+         unlink (global_list);
+       else
+         global_packages = save_order (remaining_packages);
++        if (ispc)
++          ## On Windows ensure LFN paths are saved rather than 8.3 style paths
++          global_packages = standardize_paths (global_packages);
++        endif
+         save (global_list, "global_packages");
+       endif
+     else
+@@ -144,6 +148,9 @@
+         unlink (local_list);
+       else
+         local_packages = save_order (remaining_packages);
++        if (ispc)
++          local_packages = standardize_paths (local_packages);
++        endif
+         save (local_list, "local_packages");
+       endif
+     endif
+

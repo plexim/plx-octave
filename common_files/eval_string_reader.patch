@@ -1,0 +1,50 @@
+Patch 'eval_string_reader' for it to feed the string content line by line
+to the Octave parser; necessary to get useful error messages in case of 
+parse errors
+
+--- a/libinterp/corefcn/input.cc	2019-11-14 14:22:04.000000000 +0100
++++ b/libinterp/corefcn/input.cc	2019-11-14 14:02:59.000000000 +0100
+@@ -343,8 +343,8 @@
+ 
+   private:
+ 
+-    std::string m_eval_string;
+-
++    std::istringstream m_eval_string;
++     
+     static const std::string s_in_src;
+   };
+ 
+@@ -785,6 +785,7 @@
+   std::string
+   eval_string_reader::get_input (bool& eof)
+   {
++   /*
+     octave_quit ();
+ 
+     eof = false;
+@@ -801,6 +802,24 @@
+       eof = true;
+ 
+     return retval;
++    */
++     
++    octave_quit ();
++    
++    eof = false;
++    std::string line;
++     
++    if (m_eval_string.eof ())
++      {
++        eof = true;
++      }
++    else
++      {
++        std::getline (m_eval_string, line);
++        line += '\n';
++      }
++     
++    return line;
+   }
+ }
+ 

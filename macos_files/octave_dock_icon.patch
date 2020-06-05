@@ -1,0 +1,49 @@
+Trick macOS into showing the Octave icon in
+the dock area before any visible window is created
+
+diff -r 7cb1e8751c85 libgui/src/main-window.cc
+--- a/libgui/src/main-window.cc	Tue Sep 24 17:03:16 2019 +0200
++++ b/libgui/src/main-window.cc	Thu Oct 31 15:55:23 2019 +0100
+@@ -1735,9 +1735,14 @@
+ 
+     construct_octave_qt_link ();
+ 
++    // Set the window icon also in non-gui mode for macOS
++    // to show the Octave icon in the dock area before any
++    // visible window is created.
++    setWindowIcon (QIcon (":/actions/icons/logo.png"));
++
+     if (m_start_gui)
+       {
+-        setWindowIcon (QIcon (":/actions/icons/logo.png"));
++        /* setWindowIcon (QIcon (":/actions/icons/logo.png")); */
+ 
+         m_workspace_window->setModel (m_workspace_model);
+ 
+diff -r 7cb1e8751c85 libgui/src/octave-gui.cc
+--- a/libgui/src/octave-gui.cc	Tue Sep 24 17:03:16 2019 +0200
++++ b/libgui/src/octave-gui.cc	Thu Oct 31 15:55:23 2019 +0100
+@@ -30,6 +30,7 @@
+ #include <QTranslator>
+ #include <QtGlobal>
+ #include <QStyleFactory>
++#include <QTimer>
+ 
+ #include <cstdio>
+ 
+@@ -197,7 +198,14 @@
+         gui_running (true);
+       }
+     else
+-      qt_app.setQuitOnLastWindowClosed (false);
++      {
++	qt_app.setQuitOnLastWindowClosed (false);
++
++	// Call QMainWindow::show() for macOS to set
++	// the Octave icon in the dock area.
++	QTimer::singleShot (0, &w, &QMainWindow::show);
++	QTimer::singleShot (0, &w, &QMainWindow::hide);
++      }
+ 
+     return qt_app.exec ();
+   }

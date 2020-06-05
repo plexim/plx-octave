@@ -1,0 +1,32 @@
+--- src/release-octave.mk	2019-09-30 18:10:21.000000000 +0200
++++ src/release-octave.mk	2019-10-01 09:47:10.000000000 +0200
+@@ -42,7 +42,9 @@
+ ifeq ($(USE_SYSTEM_FONTCONFIG),no)
+   $(PKG)_FONTCONFIG := fontconfig
+ endif
+-$(PKG)_DEPS     := blas arpack curl epstool fftw fltk $($(PKG)_FONTCONFIG) ghostscript gl2ps glpk gnuplot graphicsmagick hdf5 lapack libsndfile pcre portaudio pstoedit qhull qrupdate qscintilla readline sundials-ida suitesparse texinfo zlib
++#$(PKG)_DEPS     := blas arpack curl epstool fftw fltk $($(PKG)_FONTCONFIG) ghostscript gl2ps glpk gnuplot graphicsmagick hdf5 lapack libsndfile pcre portaudio pstoedit qhull qrupdate qscintilla readline sundials-ida suitesparse texinfo zlib
++
++$(PKG)_DEPS     := blas $($(PKG)_FONTCONFIG) lapack pcre readline texinfo zlib gl2ps ghostscript
+ 
+ ifeq ($(ENABLE_QT5),yes)
+     $(PKG)_DEPS += qt5
+@@ -96,7 +98,7 @@
+   #$(PKG)_PKG_CONFIG_PATH := "$(HOST_LIBDIR)/pkgconfig"
+   $(PKG)_PKG_CONFIG_PATH := "$(HOST_PREFIX)/qt5/lib/pkgconfig:$(HOST_LIBDIR)/pkgconfig"
+   $(PKG)_QTDIR := $(HOST_PREFIX)/qt5
+-  $(PKG)_QT_CONFIGURE_OPTIONS += octave_cv_lib_qscintilla="-lqscintilla2_qt5"
++#  $(PKG)_QT_CONFIGURE_OPTIONS += octave_cv_lib_qscintilla="-lqscintilla2_qt5"
+ else
+   $(PKG)_PKG_CONFIG_PATH := "$(HOST_LIBDIR)/pkgconfig"
+   $(PKG)_QTDIR := $(HOST_PREFIX)
+@@ -168,6 +170,9 @@
+   endif
+ endif
+ 
++$(PKG)_EXTRA_CONFIGURE_OPTIONS += \
++    --without-qscintilla
++
+ define $(PKG)_UPDATE
+     echo 'Warning: Updates are temporarily disabled for package octave.' >&2;
+     echo $($(PKG)_VERSION)

@@ -1,0 +1,179 @@
+
+# HG changeset patch
+# User Philip Nienhuis <prnienhuis@users.sf.net>
+# Date 1573943562 -3600
+# Node ID 377f069841c1e3db34bfb0b3a1361c70ca0de8b2
+# Parent  847dece1ae10326737a80212ef508f5c535af4f1
+Make packages installation dirs in global octave_packages file relative
+to OCTAVE_HOME (bug #51632).
+
+* make_rel_paths.m, expand_rel_paths.m: New files that replace OCTAVE_HOME part
+of packages installation path with __OH__, or vice versa.
+
+* pkg.m, install.m, uninstall.m: Call make_rel_paths.m before saving
+octave_packages file.
+
+* installed_packages.m: Add call to expand_rel_paths.m and standardize_paths.m.
+
+* module.mk: Add expand_rel_path.m and make_rel_path.m.
+
+diff --git a/scripts/pkg/module.mk b/scripts/pkg/module.mk
+--- a/scripts/pkg/module.mk
++++ b/scripts/pkg/module.mk
+@@ -8,6 +8,7 @@
+   %reldir%/private/default_prefix.m \
+   %reldir%/private/describe.m \
+   %reldir%/private/dirempty.m \
++  %reldir%/private/expand_rel_paths.m \
+   %reldir%/private/standardize_paths.m \
+   %reldir%/private/get_description.m \
+   %reldir%/private/get_forge_download.m \
+@@ -20,6 +21,7 @@
+   %reldir%/private/list_forge_packages.m \
+   %reldir%/private/load_packages.m \
+   %reldir%/private/load_packages_and_dependencies.m \
++  %reldir%/private/make_rel_paths.m \
+   %reldir%/private/rebuild.m \
+   %reldir%/private/save_order.m \
+   %reldir%/private/uninstall.m \
+diff --git a/scripts/pkg/pkg.m b/scripts/pkg/pkg.m
+--- a/scripts/pkg/pkg.m
++++ b/scripts/pkg/pkg.m
+@@ -567,6 +567,7 @@
+           ## On Windows ensure LFN paths are saved rather than 8.3 style paths
+           global_packages = standardize_paths (global_packages);
+         endif
++        global_packages = make_rel_paths (global_packages);
+         save (global_list, "global_packages");
+         if (nargout)
+           local_packages = global_packages;
+diff --git a/scripts/pkg/private/expand_rel_paths.m b/scripts/pkg/private/expand_rel_paths.m
+new file mode 100644
+--- /dev/null
++++ b/scripts/pkg/private/expand_rel_paths.m
+@@ -0,0 +1,36 @@
++## Copyright (C) 2019 Philip Nienhuis
++##
++## This program is free software: you can redistribute it and/or modify
++## it under the terms of the GNU General Public License as published by
++## the Free Software Foundation, either version 3 of the License, or
++## (at your option) any later version.
++##
++## This program is distributed in the hope that it will be useful,
++## but WITHOUT ANY WARRANTY; without even the implied warranty of
++## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++## GNU General Public License for more details.
++##
++## You should have received a copy of the GNU General Public License
++## along with this program.  If not, see <https://www.gnu.org/licenses/>.
++
++## -*- texinfo -*-
++## @deftypefn {} {@var{pkg_list} =} expand_rel_paths (@var{pkg_list})
++## Internal undocumented function.
++## @end deftypefn
++
++## Author: Philip Nienhuis <prnienhuis@users.sf.net>
++## Created: 2019-10-28
++
++function pkg_list = expand_rel_paths (pkg_list)
++
++  ## Prepend location of OCTAVE_HOME to install directories
++  loc = OCTAVE_HOME;
++  for i = 1:numel (pkg_list)
++    ## Be sure to only prepend OCTAVE_HOME to pertinent package paths
++    if (strncmpi (pkg_list{i}.dir, "__OH__", 6))
++      pkg_list{i}.dir = [ loc pkg_list{i}.dir(7:end) ];
++      pkg_list{i}.archprefix = [ loc pkg_list{i}.archprefix(7:end) ];
++    endif
++  endfor
++
++endfunction
+diff --git a/scripts/pkg/private/install.m b/scripts/pkg/private/install.m
+--- a/scripts/pkg/private/install.m
++++ b/scripts/pkg/private/install.m
+@@ -261,6 +261,7 @@
+         ## On Windows ensure LFN paths are saved rather than 8.3 style paths
+         global_packages = standardize_paths (global_packages);
+       endif
++      global_packages = make_rel_paths (global_packages);
+       save (global_list, "global_packages");
+       installed_pkgs_lst = {local_packages{:}, global_packages{:}};
+     else
+@@ -802,6 +803,9 @@
+ function generate_lookfor_cache (desc)
+ 
+   dirs = strtrim (ostrsplit (genpath (desc.dir), pathsep ()));
++  if (ispc)
++    dirs = cellfun (@canonicalize_file_name, dirs, "uniformoutput", false);
++  endif
+   for i = 1 : length (dirs)
+     doc_cache_create (fullfile (dirs{i}, "doc-cache"), dirs{i});
+   endfor
+diff --git a/scripts/pkg/private/installed_packages.m b/scripts/pkg/private/installed_packages.m
+--- a/scripts/pkg/private/installed_packages.m
++++ b/scripts/pkg/private/installed_packages.m
+@@ -32,6 +32,11 @@
+   end_try_catch
+   try
+     global_packages = load (global_list).global_packages;
++    global_packages = expand_rel_paths (global_packages);
++    if (ispc)
++      ## On Windows ensure 8.3 style paths are turned into LFN paths
++      global_packages = standardize_paths (global_packages);
++    endif
+   catch
+     global_packages = {};
+   end_try_catch
+diff --git a/scripts/pkg/private/make_rel_paths.m b/scripts/pkg/private/make_rel_paths.m
+new file mode 100644
+--- /dev/null
++++ b/scripts/pkg/private/make_rel_paths.m
+@@ -0,0 +1,36 @@
++## Copyright (C) 2019 Philip Nienhuis
++##
++## This program is free software: you can redistribute it and/or modify
++## it under the terms of the GNU General Public License as published by
++## the Free Software Foundation, either version 3 of the License, or
++## (at your option) any later version.
++##
++## This program is distributed in the hope that it will be useful,
++## but WITHOUT ANY WARRANTY; without even the implied warranty of
++## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++## GNU General Public License for more details.
++##
++## You should have received a copy of the GNU General Public License
++## along with this program.  If not, see <https://www.gnu.org/licenses/>.
++
++## -*- texinfo -*-
++## @deftypefn {} {@var{pkg_list} =} make_rel_paths (@var{pkg_list})
++## Internal undocumented function.
++## @end deftypefn
++
++## Author: Philip Nienhuis <prnienhuis@users.sf.net>
++## Created: 2019-10-28
++
++function pkg_list = make_rel_paths (pkg_list)
++
++  ptn = ["^" strrep(canonicalize_file_name (OCTAVE_HOME), '\', '\\')];
++
++  ## Strip pkg install directories from OCTAVE_HOME
++  for i = 1:numel (pkg_list)
++    pkg_list{i}.dir = canonicalize_file_name (pkg_list{i}.dir);
++    pkg_list{i}.dir = regexprep (pkg_list{i}.dir, ptn, "__OH__");
++    pkg_list{i}.archprefix = canonicalize_file_name (pkg_list{i}.archprefix);
++    pkg_list{i}.archprefix = regexprep (pkg_list{i}.archprefix, ptn, "__OH__");
++  endfor
++
++endfunction
+diff --git a/scripts/pkg/private/uninstall.m b/scripts/pkg/private/uninstall.m
+--- a/scripts/pkg/private/uninstall.m
++++ b/scripts/pkg/private/uninstall.m
+@@ -142,6 +142,7 @@
+           ## On Windows ensure LFN paths are saved rather than 8.3 style paths
+           global_packages = standardize_paths (global_packages);
+         endif
++        global_packages = make_rel_paths (global_packages);
+         save (global_list, "global_packages");
+       endif
+     else
+

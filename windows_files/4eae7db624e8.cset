@@ -1,0 +1,229 @@
+
+# HG changeset patch
+# User John Donoghue
+# Date 1574168249 18000
+# Node ID 4eae7db624e860e2bfe0c85bd37dafd5b07cc302
+# Parent  6a3f14fd9d0d98a1d525e3e8035418307d43a61f
+* tools/pkg-install.py: add rebuild command
+
+diff --git a/tools/pkg-install.py b/tools/pkg-install.py
+--- a/tools/pkg-install.py
++++ b/tools/pkg-install.py
+@@ -15,6 +15,7 @@
+   verbose = True;
+   prefix = "";
+   pkg = "";
++  use_pkg_prefix = True;
+   arch = "";
+   tmp = "/tmp";
+   apiversion = "";
+@@ -34,7 +35,20 @@
+ def get_description(descfile):
+   with open(descfile, 'r') as f:
+     lines = f.read().splitlines()
+-    d = dict(s.split(': ',1) for s in lines if s.find(': ') != -1)
++    pat_match = re.compile("(?P<name>[-\w]+):\s*(?P<value>\w.*)")
++    lineval = ""
++    d={}
++    for l in lines:
++      if len(l) > 0:
++        if (l[0] == ' ' or l[0] == '\t'):
++          lineval = lineval + l
++        else:
++          lineval = l
++
++        e = pat_match.match(lineval)
++        if e:
++          d[e.group("name")] = e.group("value")
++
+     return d
+ 
+ def extract_pkg(filename, nm):
+@@ -336,17 +350,150 @@
+ 
+     if env.cleanup:
+       shutil.rmtree(tmpdir)
+-  
++
++def fix_depends(deps):
++  deplist = [s.strip() for s in deps.split(",") if len(s.strip()) > 0]
++  deppat = re.compile('\s*(?P<name>[-\w]+)\s*(\(\s*(?P<op>[<>=]+)\s*(?P<ver>\d+\.\d+(\.\d+)*)\s*\))*\s*')
++  deps = []
++  for d in deplist:
++    e = deppat.match(d)
++    name = e.group("name")
++    ver = e.group("ver")
++
++    if ver:
++      op = e.group("op")
++    else:
++      op = ">="
++      ver = "0.0.0"
++
++    deps.append({"package": name, "operator": op, "version": ver})
++
++  return deps 
++
++def rebuild_pkg(env):
++  currdir = os.getcwd()
++
++  try:
++    oct_dir = env.prefix + "/share/octave"
++    pkg_dir = oct_dir + "/packages"
++    arch_dir = env.prefix + "/lib/octave/packages"
++
++    pkg_list_file = oct_dir + "/octave_packages"
++
++    descs=glob.glob(pkg_dir + "/*/packinfo/DESCRIPTION")
++
++    with open(pkg_list_file, "w") as f:
++      f.write("# Created by pkg-install.py\n")
++      f.write("# name: global_packages\n")
++      f.write("# type: cell\n");
++      f.write("# rows: 1\n")
++      f.write("# columns: {}\n".format(len(descs)))
++
++      for d in descs:
++        pkg = d[len(pkg_dir):-len("/packinfo/DESCRIPTION")]
++        if env.verbose:
++          print "Rebuilding {}".format(pkg)
++        desc = get_description(d)
++        desc["Name"] = desc["Name"].lower()
++        desc["Depends"] = fix_depends(desc.get("Depends",""))
++
++        f.write("# name: <cell-element>\n");
++        f.write("# type: scalar struct\n");
++        f.write("# ndims: 2\n");
++        f.write(" 1 1\n");
++        f.write("# length: 13\n");
++
++        pkg_fields = [ "Name", "Version", "Date", "Author", "Maintainer", \
++          "Title", "Description", "Depends", "Autoload", "License" ]
++        for field in pkg_fields:
++          name = field.lower()
++          value = desc.get(field, None)
++          if value is None:
++            if name == "autoload":
++              value = "no"
++            else:
++              value = "not set"
++
++          f.write("# name: {}\n".format(name))
++          if name == "depends":
++            f.write("# type: cell\n")
++            f.write("# rows: 1\n")
++            f.write("# columns: {}\n".format(len(value)))
++            dep_fields = [ "package", "operator", "version" ]
++            for dep in value:
++              f.write("# name: <cell-element>\n")
++              f.write("# type: scalar struct\n")
++              f.write("# ndims: 2\n")
++              f.write(" 1 1\n");
++              f.write("# length: 3\n");
++
++              for df in dep_fields:
++                val = dep.get(df)
++                f.write("# name: {}\n".format(df))
++                f.write("# type: sq_string\n")
++                f.write("# elements: 1\n")
++                f.write("# length: {}\n".format(len(str(val))))
++                f.write("{}\n".format(str(val)))
++                f.write("\n\n");
++
++            f.write("\n\n");
++          else:
++            f.write("# type: sq_string\n")
++            f.write("# elements: 1\n")
++            f.write("# length: {}\n".format(len(str(value))))
++            f.write("{}\n".format(str(value)))
++
++          f.write("\n\n");
++
++        f.write("# name: loaded\n")
++        f.write("# type: bool\n")
++        f.write("0\n")
++        f.write("\n\n");
++
++        name = "dir"
++        if env.use_pkg_prefix:
++          value = "__OH__/share/octave/packages" + pkg
++        else:
++          value = pkg_dir + pkg
++
++        f.write("# name: {}\n".format(name))
++        f.write("# type: sq_string\n")
++        f.write("# elements: 1\n")
++        f.write("# length: {}\n".format(len(str(value))))
++        f.write("{}\n".format(str(value)))
++        f.write("\n\n");
++
++        name = "archprefix"
++        if env.use_pkg_prefix:
++          value = "__OH__/lib/octave/packages" + pkg
++        else:
++          value = arch_dir + pkg
++        f.write("# name: {}\n".format(name))
++        f.write("# type: sq_string\n")
++        f.write("# elements: 1\n")
++        f.write("# length: {}\n".format(len(str(value))))
++        f.write("{}\n".format(str(value)))
++        f.write("\n\n");
++  finally:
++    os.chdir(currdir)
++
+ 
+ def pkg (args):
+   arch = ''
++  operation = "install"
+ 
+   env = Env()
+ 
+   files = []
++
++  operation = args[0]
++  if operation != "install" and operation != "rebuild":
++    raise Exception, "Expected pkg operation 'install' or 'rebuild'"
++
++
++  args = args[1:]
+  
+   for a in args:
+-    print a
+     c=a.split("=")
+     key=c[0]
+     if len(c) > 1:
+@@ -358,6 +505,8 @@
+       env.verbose = True;
+     elif key == "--verbose":
+       env.verbose = True;
++    elif key == "--no-pkg-prefix":
++      env.use_pkg_prefix = False;
+     elif key == "-no-cleanup":
+       env.cleanup = False;
+     elif val == "":
+@@ -406,6 +555,7 @@
+   env.bindir = os.popen(env.octave_config + " -p BINDIR").read().rstrip("\r\n")
+ 
+   if env.verbose:
++    print "operation=", operation
+     print "mkoctfile=", env.mkoctfile
+     print "arch=", env.arch
+     print "apiversion=", env.apiversion
+@@ -413,9 +563,13 @@
+     print "files=", files
+     print "verbose=", env.verbose
+ 
+-  for a in files:
+-    install_pkg(a, env)
+-
++  if operation == "install":
++    for a in files:
++      install_pkg(a, env)
++      # rebuild pkg list afterwards
++      rebuild_pkg(env)
++  else:
++      rebuild_pkg(env)
+   return 0
+ 
+ if __name__ == "__main__":
+

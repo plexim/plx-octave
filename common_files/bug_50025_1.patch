@@ -1,0 +1,27 @@
+Fix bug #50025: Octave window freezes
+see https://savannah.gnu.org/bugs/?50025
+Patch file from: https://savannah.gnu.org/support/download.php?file_id=45382
+
+diff --git a/libgui/src/main-window.cc b/libgui/src/main-window.cc
+--- a/libgui/src/main-window.cc
++++ b/libgui/src/main-window.cc
+@@ -2786,9 +2786,6 @@ namespace octave
+     connect (m_interpreter, SIGNAL (octave_finished_signal (int)),
+              this, SLOT (handle_octave_finished (int)));
+ 
+-    connect (m_interpreter, SIGNAL (octave_finished_signal (int)),
+-             m_main_thread, SLOT (quit (void)));
+-
+     connect (m_main_thread, SIGNAL (finished (void)),
+              m_main_thread, SLOT (deleteLater (void)));
+ 
+@@ -2854,6 +2851,9 @@ namespace octave
+ 
+   void octave_qt_app::handle_octave_finished (int exit_status)
+   {
++    /* fprintf to stderr is needed by macOS */
++    fprintf(stderr, "\n");
++    m_main_thread->quit();
+     qApp->exit (exit_status);
+   }
+ 

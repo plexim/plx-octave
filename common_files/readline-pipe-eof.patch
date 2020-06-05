@@ -1,0 +1,14 @@
+--- a/input.c	2018-09-30 23:04:21.000000000 +0200
++++ b/input.c	2020-01-14 15:05:51.000000000 +0100
+@@ -236,6 +236,11 @@
+   errno = 0;
+ #if defined (FIONREAD)
+   result = ioctl (tty, FIONREAD, &chars_avail);
++  if (result == 0 && chars_avail == 0)
++    {
++      rl_stuff_char (EOF);
++      return 0;
++    }
+   if (result == -1 && errno == EIO)
+     return -1;
+   if (result == -1)

@@ -1,0 +1,129 @@
+--- a/input.c	2020-01-10 13:54:49.442718958 +0100
++++ b/input.c	2020-01-14 12:51:08.202298750 +0100
+@@ -226,10 +226,99 @@
+     }
+ #endif /* O_NDELAY */
+ 
++  static struct {
++    char buffer[20];
++    int chars_avail;
++    int index;
++    int eof;
++  } win32_pipebuf = {0};
++
+ #if defined (__MINGW32__)
+-  /* Use getch/_kbhit to check for available console input, in the same way
+-     that we read it normally. */
+-  chars_avail = isatty (tty) ? _win32_kbhit () : 0;
++  if (isatty (tty)) 
++    {
++      chars_avail = _win32_kbhit ();
++    } 
++  else 
++    {
++      HANDLE hFile = (HANDLE)_get_osfhandle (tty);
++      if (GetFileType (hFile) == FILE_TYPE_PIPE) 
++	{
++	  static int read_in_progress = 0;
++	  static OVERLAPPED overlapped = {0};
++	  DWORD bytes_read;
++	  BOOL success;
++	  DWORD error;
++	  
++	  chars_avail = 0;
++
++	  if (win32_pipebuf.chars_avail > 0)
++	    {
++	      chars_avail = win32_pipebuf.chars_avail;
++	    }
++	  else
++	    {
++	      if (!read_in_progress)
++		{
++		  memset(&win32_pipebuf, 0, sizeof(win32_pipebuf));
++		  memset(&overlapped, 0, sizeof(OVERLAPPED));
++
++		  success = ReadFile(hFile, win32_pipebuf.buffer, sizeof(win32_pipebuf.buffer), &bytes_read, &overlapped);
++
++		  if (success) 
++		    {
++		      chars_avail = bytes_read;
++		      win32_pipebuf.chars_avail = bytes_read;
++		    }
++		  else
++		    {
++		      error = GetLastError();
++		      
++		      if (error == ERROR_IO_PENDING)
++			{
++			  read_in_progress = 1;
++			}
++		      else if (error == ERROR_HANDLE_EOF || error == ERROR_BROKEN_PIPE)
++			{
++			  win32_pipebuf.eof = 1;
++			  win32_pipebuf.chars_avail = 1;
++			  chars_avail = 1;
++			}
++		    }
++		}
++
++	      if (read_in_progress && 
++		  WaitForSingleObjectEx(hFile, _keyboard_input_timeout/1000, FALSE) == WAIT_OBJECT_0)
++		{ 
++		  success = GetOverlappedResult(hFile, &overlapped, &bytes_read, FALSE);
++		  
++		  if (success)
++		    {
++		      chars_avail = bytes_read;
++		      win32_pipebuf.chars_avail = bytes_read;
++		      read_in_progress = 0;
++		    }
++		  else
++		    {
++		      error = GetLastError();
++		  
++		      if (error == ERROR_HANDLE_EOF || error == ERROR_BROKEN_PIPE)
++			{
++			  win32_pipebuf.eof = 1;
++			  win32_pipebuf.chars_avail = 1;
++			  chars_avail = 1;
++			  read_in_progress = 0;
++			}
++		    }
++		}
++	    }
++	} 
++      else 
++	{
++	  /* handle is neither a tty nor a pipe */
++	}
++
++    }
++  
+   result = 0;
+ #endif
+ 
+@@ -255,7 +344,22 @@
+       while (chars_avail--)
+ 	{
+ 	  RL_CHECK_SIGNALS ();
+-	  k = (*rl_getc_function) (rl_instream);
++	  if (win32_pipebuf.chars_avail > 0)
++	    {
++	      if (win32_pipebuf.eof)
++		{
++		  k = EOF;
++		}
++	      else
++		{
++		  k = win32_pipebuf.buffer[ win32_pipebuf.index++ ];
++		}
++	      win32_pipebuf.chars_avail--;
++	    }
++	  else
++	    {
++	      k = (*rl_getc_function) (rl_instream);
++	    }
+ 	  if (rl_stuff_char (k) == 0)
+ 	    break;			/* some problem; no more room */
+ 	  if (k == NEWLINE || k == RETURN)

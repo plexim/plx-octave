@@ -1,0 +1,64 @@
+diff -r 7f8ff4800eef binary-dist-rules.mk
+--- binary-dist-rules.mk	Thu Aug 09 22:26:37 2018 -0400
++++ binary-dist-rules.mk	Tue Nov 26 11:48:23 2019 +0100
+@@ -37,14 +37,22 @@
+ 
+ endif
+ 
++#BINARY_DIST_DEPS := \
++#  $(OCTAVE_TARGET) \
++#  blas-packages \
++#  octave-forge-packages \
++#  devel-packages \
++#  units \
++#  transfig \
++#  $(WINDOWS_BINARY_DIST_DEPS)
++
+ BINARY_DIST_DEPS := \
+   $(OCTAVE_TARGET) \
+-  blas-packages \
+-  octave-forge-packages \
+-  devel-packages \
+-  units \
+-  transfig \
+-  $(WINDOWS_BINARY_DIST_DEPS)
++  msys-msys-core \
++  msys-coreutils msys-libintl msys-libiconv \
++  msys-libcrypt \
++  msys-perl \
++  of-control of-signal
+ 
+ define delete-dist-directory
+   echo "deleting previous dist directory..."
+@@ -82,9 +90,9 @@
+       echo "  msys extension files..."
+       cd $(TOP_BUILD_DIR)/msys-extension \
+         && tar -c $(TAR_H_OPTION) -f - . | ( cd $(OCTAVE_DIST_DIR) ; tar xpf - )
+-      echo "  notepad++..."
+-      cd $(TOP_BUILD_DIR) \
+-          && tar -c $(TAR_H_OPTION) -f - notepad++ | ( cd $(OCTAVE_DIST_DIR) ; tar xpf - )
++#      echo "  notepad++..."
++#      cd $(TOP_BUILD_DIR) \
++#          && tar -c $(TAR_H_OPTION) -f - notepad++ | ( cd $(OCTAVE_DIST_DIR) ; tar xpf - )
+       echo "  README.html..."
+       cp $(TOP_DIR)/installer-files/README.html $(OCTAVE_DIST_DIR)/
+       echo "  refblas..."
+@@ -191,6 +199,10 @@
+   endef
+ endif
+ 
++define create-qt-conf
++	echo -e '[Platforms]\nWindowsArguments = dpiawareness=0' > $(OCTAVE_DIST_DIR)/bin/qt.conf
++endef
++
+ .PHONY: binary-dist-files
+ binary-dist-files: $(BINARY_DIST_DEPS)
+ 	@$(delete-dist-directory)
+@@ -200,6 +212,7 @@
+ 	@$(make-dist-files-writable)
+ 	@$(strip-dist-files)
+ 	@$(install-octave-wrapper-scripts)
++	@$(create-qt-conf)
+ 
+ define make-installer-file
+   if [ -f $(OCTAVE_NSI_FILE) ]; then \

@@ -1,0 +1,12 @@
+diff -r 7f8ff4800eef Makefile.in
+--- a/Makefile.in	Thu Aug 09 22:26:37 2018 -0400
++++ b/Makefile.in	Mon Nov 25 14:20:49 2019 +0100
+@@ -789,7 +789,7 @@
+         $(CONFIGURE_CPPFLAGS) $(CONFIGURE_LDFLAGS) \
+         MKOCTFILE=$(MXE_MKOCTFILE) MAKE=$(MAKE) \
+         CONFIGURE_OPTIONS="$(HOST_AND_BUILD_CONFIGURE_OPTIONS)" $(4) \
+-        $(TOP_DIR)/tools/pkg-install.py -verbose "$($(PKG)_FILE)"; \
++        $(TOP_DIR)/tools/pkg-install.py install -verbose "$($(PKG)_FILE)"; \
+      fi
+ endef
+ endif
