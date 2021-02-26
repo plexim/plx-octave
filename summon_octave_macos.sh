@@ -421,6 +421,26 @@ build_qt()
 }
 
 
+build_glpk()
+{
+    local ver=5.0
+
+    fetch_src https://ftp.gnu.org/gnu/glpk/glpk-$ver.tar.gz
+
+    enter_builddir glpk
+    $srcroot/glpk-$ver/configure \
+	--prefix=$instroot \
+	--disable-silent-rules \
+	--enable-shared \
+	--disable-static \
+	2>&1 | tee conflog.txt
+
+    do_make
+    do_make check
+    do_make install
+}
+
+
 patch_octave()
 {
     patch -p1 -d $srcroot/octave-$octver < $scriptdir/common_files/bug_49053_1.patch
@@ -476,7 +496,6 @@ build_octave()
 	--without-fftw3 \
 	--without-fftw3f \
 	--without-fltk \
-	--without-glpk \
 	--without-gnuplot \
 	--without-magick \
 	--without-hdf5 \
@@ -820,6 +839,8 @@ main()
     build_gl2ps
 
     build_qt
+    
+    build_glpk
     
     build_octave
 

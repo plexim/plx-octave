@@ -377,6 +377,26 @@ build_qt()
 }
 
 
+build_glpk()
+{
+    local ver=5.0
+
+    fetch_src https://ftp.gnu.org/gnu/glpk/glpk-$ver.tar.gz
+
+    enter_builddir glpk
+    $srcroot/glpk-$ver/configure \
+	--prefix=$instroot \
+	--disable-silent-rules \
+	--enable-shared \
+	--disable-static \
+	2>&1 | tee conflog.txt
+
+    do_make
+    do_make check
+    do_make install
+}
+
+
 patch_octave()
 {
     patch -p1 -d $srcroot/octave-$octver < $rootdir/common_files/bug_49053_1.patch
@@ -669,6 +689,8 @@ container_entrypoint()
 #   build_fontconfig
 
     build_gl2ps
+
+    build_glpk
 
     build_qt
 
