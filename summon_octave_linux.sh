@@ -617,6 +617,7 @@ install_forge_packages()
 	pkg_list = fullfile (OCTAVE_HOME (), 'share', 'octave', 'octave_packages');
 	pkg ('prefix', pkg_prefix, pkg_archprefix);
 	pkg ('global_list', pkg_list);
+	pkg ('local_list', pkg_list);
 	clear ('pkg_prefix', 'pkg_archprefix', 'pkg_list');
 EOF
     )
