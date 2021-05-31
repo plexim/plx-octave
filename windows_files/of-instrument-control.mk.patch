@@ -1,0 +1,13 @@
+--- src/of-instrument-control.mk	2021-05-19 14:02:37.000000000 +0200
++++ src/of-instrument-control.mk	2021-05-19 14:06:46.000000000 +0200
+@@ -3,8 +3,8 @@
+ 
+ PKG             := of-instrument-control
+ $(PKG)_IGNORE   :=
+-$(PKG)_VERSION  := 0.3.1
+-$(PKG)_CHECKSUM := 1ccc5073d26abbff1efb0ef1752e296d063c1aad
++$(PKG)_VERSION  := 0.7.0
++$(PKG)_CHECKSUM := b2d6c091dccea01389c51a9279b385135ce035d6
+ $(PKG)_REMOTE_SUBDIR := 
+ $(PKG)_SUBDIR   := instrument-control-$($(PKG)_VERSION)
+ $(PKG)_FILE     := instrument-control-$($(PKG)_VERSION).tar.gz

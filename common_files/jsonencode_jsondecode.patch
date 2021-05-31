@@ -1,0 +1,3052 @@
+Backport `jsonencode` and `jsondecode` functions from octave master branch 0562777c015f (10.05.2021), consisting of the following changes:
+ - `jsonencode` and `jsondecode` implementation (5da49e37a6c9, c.f. https://abdallahshamy.wordpress.com/2020/08/28/google-summer-of-code-2020-with-gnu-octave-final-report/)
+ - `unwind_action` implementation (2f8428b61bd6 and e274759bcb12)
+ - `make_valid_name` implementation (b924b916dc91), thereby changes references to `iskeyword` to `is_keyword` (c.f. da2bbcf1fbcd)
+
+---
+ configure.ac                     |  33 ++
+ libinterp/corefcn/jsondecode.cc  | 561 ++++++++++++++++++++++++++
+ libinterp/corefcn/jsonencode.cc  | 670 +++++++++++++++++++++++++++++++
+ libinterp/corefcn/module.mk      |   2 +
+ libinterp/corefcn/utils.cc       | 124 ++++++
+ libinterp/corefcn/utils.h        |  55 +++
+ liboctave/util/unwind-prot.cc    |   9 +
+ liboctave/util/unwind-prot.h     | 221 ++++++++++
+ scripts/help/__unimplemented__.m |   2 -
+ test/json/jsondecode_BIST.tst    | 556 +++++++++++++++++++++++++
+ test/json/jsonencode_BIST.tst    | 658 ++++++++++++++++++++++++++++++
+ test/json/module.mk              |   5 +
+ test/module.mk                   |   1 +
+ 13 files changed, 2895 insertions(+), 2 deletions(-)
+ create mode 100644 libinterp/corefcn/jsondecode.cc
+ create mode 100644 libinterp/corefcn/jsonencode.cc
+ create mode 100644 test/json/jsondecode_BIST.tst
+ create mode 100644 test/json/jsonencode_BIST.tst
+ create mode 100644 test/json/module.mk
+
+diff --git a/configure.ac b/configure.ac
+index 7660c92..d36639e 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -1366,6 +1366,39 @@ OCTAVE_CHECK_LIB(pcre, PCRE,
+   [], [pcre.h pcre/pcre.h], [pcre_compile], [], [], [],
+   [libpcre], [REQUIRED])
+ 
++### Check for RapidJSON header only library.
++
++AC_LANG_PUSH(C++)
++AC_CHECK_HEADER([rapidjson/rapidjson.h],
++                [have_rapidjson=yes], [have_rapidjson=no])
++
++if test $have_rapidjson = yes; then
++  AC_DEFINE(HAVE_RAPIDJSON, 1, [Define to 1 if RapidJSON is available.])
++
++  ## Additional check on RapidJSON library that was found
++  AC_CACHE_CHECK([for working PrettyWriter in RapidJSON],
++    [octave_cv_rapidjson_has_prettywriter],
++    [AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
++      #include <rapidjson/prettywriter.h>
++      ]], [[
++      rapidjson::StringBuffer json;
++      rapidjson::PrettyWriter<rapidjson::StringBuffer, rapidjson::UTF8<>,
++                              rapidjson::UTF8<>, rapidjson::CrtAllocator,
++                              rapidjson::kWriteNanAndInfFlag> writer (json);
++      ]])],
++      [octave_cv_rapidjson_has_prettywriter=yes],
++      [octave_cv_rapidjson_has_prettywriter=no])
++    ])
++  if test $octave_cv_rapidjson_has_prettywriter = yes; then
++    AC_DEFINE(HAVE_RAPIDJSON_PRETTYWRITER, 1,
++      [Define to 1 if the RapidJSON PrettyWriter function is available.])
++  else
++    rapid_json_warning='Older RapidJSON library found.  The "PrettyWriter" option in jsonencode will be disabled.'
++    OCTAVE_CONFIGURE_WARNING([rapid_json_warning])
++  fi
++fi
++AC_LANG_POP([C++])
++
+ ### Check for readline library.
+ 
+ OCTAVE_ENABLE_READLINE
+diff --git a/libinterp/corefcn/jsondecode.cc b/libinterp/corefcn/jsondecode.cc
+new file mode 100644
+index 0000000..0ff4545
+--- /dev/null
++++ b/libinterp/corefcn/jsondecode.cc
+@@ -0,0 +1,564 @@
++////////////////////////////////////////////////////////////////////////
++//
++// Copyright (C) 2020-2021 The Octave Project Developers
++//
++// See the file COPYRIGHT.md in the top-level directory of this
++// distribution or <https://octave.org/copyright/>.
++//
++// This file is part of Octave.
++//
++// Octave is free software: you can redistribute it and/or modify it
++// under the terms of the GNU General Public License as published by
++// the Free Software Foundation, either version 3 of the License, or
++// (at your option) any later version.
++//
++// Octave is distributed in the hope that it will be useful, but
++// WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License
++// along with Octave; see the file COPYING.  If not, see
++// <https://www.gnu.org/licenses/>.
++//
++////////////////////////////////////////////////////////////////////////
++
++#if defined (HAVE_CONFIG_H)
++#  include "config.h"
++#endif
++
++#include "defun.h"
++#include "error.h"
++#include "errwarn.h"
++#include "ovl.h"
++#include "utils.h"
++
++#if defined (HAVE_RAPIDJSON)
++#  include <rapidjson/document.h>
++#  include <rapidjson/error/en.h>
++#endif
++
++#if defined (HAVE_RAPIDJSON)
++
++octave_value
++decode (const rapidjson::Value& val,
++        const octave::make_valid_name_options& options);
++
++//! Decodes a numerical JSON value into a scalar number.
++//!
++//! @param val JSON value that is guaranteed to be a numerical value.
++//!
++//! @return @ref octave_value that contains the numerical value of @p val.
++//!
++//! @b Example:
++//!
++//! @code{.cc}
++//! rapidjson::Document d;
++//! d.Parse ("123");
++//! octave_value num = decode_number (d);
++//! @endcode
++
++octave_value
++decode_number (const rapidjson::Value& val)
++{
++  if (val.IsUint ())
++    return octave_value (val.GetUint ());
++  else if (val.IsInt ())
++    return octave_value (val.GetInt ());
++  else if (val.IsUint64 ())
++    return octave_value (val.GetUint64 ());
++  else if (val.IsInt64 ())
++    return octave_value (val.GetInt64 ());
++  else if (val.IsDouble ())
++    return octave_value (val.GetDouble ());
++  else
++    error ("jsondecode: unidentified type");
++}
++
++//! Decodes a JSON object into a scalar struct.
++//!
++//! @param val JSON value that is guaranteed to be a JSON object.
++//! @param options @c ReplacementStyle and @c Prefix options with their values.
++//!
++//! @return @ref octave_value that contains the equivalent scalar struct of @p val.
++//!
++//! @b Example:
++//!
++//! @code{.cc}
++//! rapidjson::Document d;
++//! d.Parse ("{\"a\": 1, \"b\": 2}");
++//! octave_value struct = decode_object (d, octave_value_list ());
++//! @endcode
++
++octave_value
++decode_object (const rapidjson::Value& val,
++               const octave::make_valid_name_options& options)
++{
++  octave_scalar_map retval;
++
++  for (const auto& pair : val.GetObject ())
++  {
++    // Validator function "matlab.lang.makeValidName" to guarantee legitimate
++    // variable name.
++    std::string varname = pair.name.GetString ();
++    octave::make_valid_name (varname, options);
++    retval.assign (varname, decode (pair.value, options));
++  }
++
++  return retval;
++}
++
++//! Decodes a JSON array that contains only numerical or null values
++//! into an NDArray.
++//!
++//! @param val JSON value that is guaranteed to be a numeric array.
++//!
++//! @return @ref octave_value that contains the equivalent NDArray of @p val.
++//!
++//! @b Example:
++//!
++//! @code{.cc}
++//! rapidjson::Document d;
++//! d.Parse ("[1, 2, 3, 4]");
++//! octave_value numeric_array = decode_numeric_array (d);
++//! @endcode
++
++octave_value
++decode_numeric_array (const rapidjson::Value& val)
++{
++  NDArray retval (dim_vector (val.Size (), 1));
++  octave_idx_type index = 0;
++  for (const auto& elem : val.GetArray ())
++    retval(index++) = elem.IsNull () ? octave_NaN
++                                     : decode_number (elem).double_value ();
++  return retval;
++}
++
++//! Decodes a JSON array that contains only boolean values into a boolNDArray.
++//!
++//! @param val JSON value that is guaranteed to be a boolean array.
++//!
++//! @return @ref octave_value that contains the equivalent boolNDArray of @p val.
++//!
++//! @b Example:
++//!
++//! @code{.cc}
++//! rapidjson::Document d;
++//! d.Parse ("[true, false, true]");
++//! octave_value boolean_array = decode_boolean_array (d);
++//! @endcode
++
++octave_value
++decode_boolean_array (const rapidjson::Value& val)
++{
++  boolNDArray retval (dim_vector (val.Size (), 1));
++  octave_idx_type index = 0;
++  for (const auto& elem : val.GetArray ())
++    retval(index++) = elem.GetBool ();
++  return retval;
++}
++
++//! Decodes a JSON array that contains different types
++//! or string values only into a Cell.
++//!
++//! @param val JSON value that is guaranteed to be a mixed or string array.
++//! @param options @c ReplacementStyle and @c Prefix options with their values.
++//!
++//! @return @ref octave_value that contains the equivalent Cell of @p val.
++//!
++//! @b Example (decoding a string array):
++//!
++//! @code{.cc}
++//! rapidjson::Document d;
++//! d.Parse ("[\"foo\", \"bar\", \"baz\"]");
++//! octave_value cell = decode_string_and_mixed_array (d, octave_value_list ());
++//! @endcode
++//!
++//! @b Example (decoding a mixed array):
++//!
++//! @code{.cc}
++//! rapidjson::Document d;
++//! d.Parse ("[\"foo\", 123, true]");
++//! octave_value cell = decode_string_and_mixed_array (d, octave_value_list ());
++//! @endcode
++
++octave_value
++decode_string_and_mixed_array (const rapidjson::Value& val,
++                               const octave::make_valid_name_options& options)
++{
++  Cell retval (dim_vector (val.Size (), 1));
++  octave_idx_type index = 0;
++  for (const auto& elem : val.GetArray ())
++    retval(index++) = decode (elem, options);
++  return retval;
++}
++
++//! Decodes a JSON array that contains only objects into a Cell or struct array
++//! depending on the similarity of the objects' keys.
++//!
++//! @param val JSON value that is guaranteed to be an object array.
++//! @param options @c ReplacementStyle and @c Prefix options with their values.
++//!
++//! @return @ref octave_value that contains the equivalent Cell
++//! or struct array of @p val.
++//!
++//! @b Example (returns a struct array):
++//!
++//! @code{.cc}
++//! rapidjson::Document d;
++//! d.Parse ("[{\"a\":1,\"b\":2},{\"a\":3,\"b\":4}]");
++//! octave_value object_array = decode_object_array (d, octave_value_list ());
++//! @endcode
++//!
++//! @b Example (returns a Cell):
++//!
++//! @code{.cc}
++//! rapidjson::Document d;
++//! d.Parse ("[{\"a\":1,\"b\":2},{\"b\":3,\"a\":4}]");
++//! octave_value object_array = decode_object_array (d, octave_value_list ());
++//! @endcode
++
++octave_value
++decode_object_array (const rapidjson::Value& val,
++                     const octave::make_valid_name_options& options)
++{
++  Cell struct_cell = decode_string_and_mixed_array (val, options).cell_value ();
++  string_vector field_names = struct_cell(0).scalar_map_value ().fieldnames ();
++
++  bool same_field_names = true;
++  for (octave_idx_type i = 1; i < struct_cell.numel (); ++i)
++    if (field_names.std_list ()
++        != struct_cell(i).scalar_map_value ().fieldnames ().std_list ())
++      {
++        same_field_names = false;
++        break;
++      }
++
++  if (same_field_names)
++    {
++      octave_map struct_array;
++      Cell value (dim_vector (struct_cell.numel (), 1));
++      for (octave_idx_type i = 0; i < field_names.numel (); ++i)
++        {
++          for (octave_idx_type k = 0; k < struct_cell.numel (); ++k)
++            value(k) = struct_cell(k).scalar_map_value ().getfield (field_names(i));
++          struct_array.assign (field_names(i), value);
++        }
++      return struct_array;
++    }
++  else
++    return struct_cell;
++}
++
++//! Decodes a JSON array that contains only arrays into a Cell or an NDArray
++//! depending on the dimensions and element types of the sub-arrays.
++//!
++//! @param val JSON value that is guaranteed to be an array of arrays.
++//! @param options @c ReplacementStyle and @c Prefix options with their values.
++//!
++//! @return @ref octave_value that contains the equivalent Cell
++//! or NDArray of @p val.
++//!
++//! @b Example (returns an NDArray):
++//!
++//! @code{.cc}
++//! rapidjson::Document d;
++//! d.Parse ("[[1, 2], [3, 4]]");
++//! octave_value array = decode_array_of_arrays (d, octave_value_list ());
++//! @endcode
++//!
++//! @b Example (returns a Cell):
++//!
++//! @code{.cc}
++//! rapidjson::Document d;
++//! d.Parse ("[[1, 2], [3, 4, 5]]");
++//! octave_value cell = decode_array_of_arrays (d, octave_value_list ());
++//! @endcode
++
++octave_value
++decode_array_of_arrays (const rapidjson::Value& val,
++                        const octave::make_valid_name_options& options)
++{
++  // Some arrays should be decoded as NDArrays and others as cell arrays
++  Cell cell = decode_string_and_mixed_array (val, options).cell_value ();
++
++  // Only arrays with sub-arrays of booleans and numericals will return NDArray
++  bool is_bool = cell(0).is_bool_matrix ();
++  dim_vector sub_array_dims = cell(0).dims ();
++  octave_idx_type sub_array_ndims = cell(0).ndims ();
++  octave_idx_type cell_numel = cell.numel ();
++  for (octave_idx_type i = 0; i < cell_numel; ++i)
++    {
++      // If one element is cell return the cell array as at least one of the
++      // sub-arrays area either an array of: strings, objects or mixed array
++      if (cell(i).iscell ())
++        return cell;
++      // If not the same dim of elements or dim = 0, return cell array
++      if (cell(i).dims () != sub_array_dims || sub_array_dims == dim_vector ())
++        return cell;
++      // If not numeric sub-arrays only or bool sub-arrays only,
++      // return cell array
++      if (cell(i).is_bool_matrix () != is_bool)
++        return cell;
++    }
++
++  // Calculate the dims of the output array
++  dim_vector array_dims;
++  array_dims.resize (sub_array_ndims + 1);
++  array_dims(0) = cell_numel;
++  for (auto i = 1; i < sub_array_ndims + 1; i++)
++    array_dims(i) = sub_array_dims(i-1);
++  NDArray array (array_dims);
++
++  // Populate the array with specific order to generate MATLAB-identical output
++  octave_idx_type sub_array_numel = array.numel() / cell_numel;
++  for (octave_idx_type k = 0; k < cell_numel; ++k)
++  {
++    NDArray sub_array_value = cell(k).array_value();
++    for (octave_idx_type i = 0; i < sub_array_numel; ++i)
++      array(k + i * cell_numel) = sub_array_value(i);
++  }
++
++  if (is_bool)
++    return boolNDArray (array);
++  else
++    return array;
++}
++
++//! Decodes any type of JSON arrays.  This function only serves as an interface
++//! by choosing which function to call from the previous functions.
++//!
++//! @param val JSON value that is guaranteed to be an array.
++//! @param options @c ReplacementStyle and @c Prefix options with their values.
++//!
++//! @return @ref octave_value that contains the output of decoding @p val.
++//!
++//! @b Example:
++//!
++//! @code{.cc}
++//! rapidjson::Document d;
++//! d.Parse ("[[1, 2], [3, 4, 5]]");
++//! octave_value array = decode_array (d, octave_value_list ());
++//! @endcode
++
++octave_value
++decode_array (const rapidjson::Value& val,
++              const octave::make_valid_name_options& options)
++{
++  // Handle empty arrays
++  if (val.Empty ())
++    return NDArray ();
++
++  // Compare with other elements to know if the array has multiple types
++  rapidjson::Type array_type = val[0].GetType ();
++  // Check if the array is numeric and if it has multiple types
++  bool same_type = true;
++  bool is_numeric = true;
++  for (const auto& elem : val.GetArray ())
++    {
++      rapidjson::Type current_elem_type = elem.GetType ();
++      if (is_numeric && ! (current_elem_type == rapidjson::kNullType
++          || current_elem_type == rapidjson::kNumberType))
++        is_numeric = false;
++      if (same_type && (current_elem_type != array_type))
++        // RapidJSON doesn't have kBoolean Type it has kTrueType and kFalseType
++        if (! ((current_elem_type == rapidjson::kTrueType
++                && array_type == rapidjson::kFalseType)
++            || (current_elem_type == rapidjson::kFalseType
++                && array_type == rapidjson::kTrueType)))
++          same_type = false;
++    }
++
++  if (is_numeric)
++    return decode_numeric_array (val);
++
++  if (same_type && (array_type != rapidjson::kStringType))
++    {
++      if (array_type == rapidjson::kTrueType
++          || array_type == rapidjson::kFalseType)
++        return decode_boolean_array (val);
++      else if (array_type == rapidjson::kObjectType)
++        return decode_object_array (val, options);
++      else if (array_type == rapidjson::kArrayType)
++        return decode_array_of_arrays (val, options);
++      else
++        error ("jsondecode: unidentified type");
++    }
++  else
++    return decode_string_and_mixed_array (val, options);
++}
++
++//! Decodes any JSON value.  This function only serves as an interface
++//! by choosing which function to call from the previous functions.
++//!
++//! @param val JSON value.
++//! @param options @c ReplacementStyle and @c Prefix options with their values.
++//!
++//! @return @ref octave_value that contains the output of decoding @p val.
++//!
++//! @b Example:
++//!
++//! @code{.cc}
++//! rapidjson::Document d;
++//! d.Parse ("[{\"a\":1,\"b\":2},{\"b\":3,\"a\":4}]");
++//! octave_value value = decode (d, octave_value_list ());
++//! @endcode
++
++octave_value
++decode (const rapidjson::Value& val,
++        const octave::make_valid_name_options& options)
++{
++  if (val.IsBool ())
++    return val.GetBool ();
++  else if (val.IsNumber ())
++    return decode_number (val);
++  else if (val.IsString ())
++    return val.GetString ();
++  else if (val.IsObject ())
++    return decode_object (val, options);
++  else if (val.IsNull ())
++    return NDArray ();
++  else if (val.IsArray ())
++    return decode_array (val, options);
++  else
++    error ("jsondecode: unidentified type");
++}
++
++#endif
++
++DEFUN (jsondecode, args, ,
++       doc: /* -*- texinfo -*-
++@deftypefn  {} {@var{object} =} jsondecode (@var{JSON_txt})
++@deftypefnx {} {@var{object} =} jsondecode (@dots{}, "ReplacementStyle", @var{rs})
++@deftypefnx {} {@var{object} =} jsondecode (@dots{}, "Prefix", @var{pfx})
++
++Decode text that is formatted in JSON.
++
++The input @var{JSON_txt} is a string that contains JSON text.
++
++The output @var{object} is an Octave object that contains the result of
++decoding @var{JSON_txt}.
++
++For more information about the options @qcode{"ReplacementStyle"} and
++@qcode{"Prefix"}, see
++@ref{XREFmatlab_lang_makeValidName,,matlab.lang.makeValidName}.
++
++NOTE: Decoding and encoding JSON text is not guaranteed to reproduce the
++original text as some names may be changed by @code{matlab.lang.makeValidName}.
++
++This table shows the conversions from JSON data types to Octave data types:
++
++@multitable @columnfractions 0.50 0.50
++@headitem JSON data type @tab Octave data type
++@item Boolean @tab scalar logical
++@item Number @tab scalar double
++@item String @tab vector of characters
++@item Object @tab scalar struct (field names of the struct may be different from the keys of the JSON object due to @code{matlab_lang_makeValidName}
++@item null, inside a numeric array @tab @code{NaN}
++@item null, inside a non-numeric array @tab empty double array @code{[]}
++@item Array, of different data types @tab cell array
++@item Array, of Booleans @tab logical array
++@item Array, of Numbers @tab double array
++@item Array, of Strings @tab cell array of character vectors (@code{cellstr})
++@item Array of Objects, same field names @tab struct array
++@item Array of Objects, different field names @tab cell array of scalar structs
++@end multitable
++
++Examples:
++
++@example
++@group
++jsondecode ('[1, 2, null, 3]')
++    @result{} ans =
++
++      1
++      2
++    NaN
++      3
++@end group
++
++@group
++jsondecode ('["foo", "bar", ["foo", "bar"]]')
++    @result{} ans =
++       @{
++         [1,1] = foo
++         [2,1] = bar
++         [3,1] =
++         @{
++           [1,1] = foo
++           [2,1] = bar
++         @}
++
++       @}
++@end group
++
++@group
++jsondecode ('@{"nu#m#ber": 7, "s#tr#ing": "hi"@}', ...
++            'ReplacementStyle', 'delete')
++    @result{} scalar structure containing the fields:
++
++         number = 7
++         string = hi
++@end group
++
++@group
++jsondecode ('@{"1": "one", "2": "two"@}', 'Prefix', 'm_')
++    @result{} scalar structure containing the fields:
++
++         m_1 = one
++         m_2 = two
++@end group
++@end example
++
++@seealso{jsonencode, matlab.lang.makeValidName}
++@end deftypefn */)
++{
++#if defined (HAVE_RAPIDJSON)
++
++  int nargin = args.length ();
++
++  // makeValidName options are pairs, the number of arguments must be odd.
++  if (! (nargin % 2))
++    print_usage ();
++
++  octave::make_valid_name_options options (args.slice (1, nargin - 1));
++
++  if (! args(0).is_string ())
++    error ("jsondecode: JSON_TXT must be a character string");
++
++  std::string json = args(0).string_value ();
++  rapidjson::Document d;
++  // DOM is chosen instead of SAX as SAX publishes events to a handler that
++  // decides what to do depending on the event only.  This will cause a
++  // problem in decoding JSON arrays as the output may be an array or a cell
++  // and that doesn't only depend on the event (startArray) but also on the
++  // types of the elements inside the array.
++  d.Parse <rapidjson::kParseNanAndInfFlag> (json.c_str ());
++
++  if (d.HasParseError ())
++    error ("jsondecode: parse error at offset %u: %s\n",
++           static_cast<unsigned int> (d.GetErrorOffset ()) + 1,
++           rapidjson::GetParseError_En (d.GetParseError ()));
++
++  return decode (d, options);
++
++#else
++
++  octave_unused_parameter (args);
++
++  err_disabled_feature ("jsondecode", "JSON decoding through RapidJSON");
++
++#endif
++}
++
++/*
++Functional BIST tests are located in test/json/jsondecode_BIST.tst
++
++## Input validation tests
++%!testif HAVE_RAPIDJSON
++%! fail ("jsondecode ()");
++%! fail ("jsondecode ('1', 2)");
++%! fail ("jsondecode (1)", "JSON_TXT must be a character string");
++%! fail ("jsondecode ('12-')", "parse error at offset 3");
++
++*/
+diff --git a/libinterp/corefcn/jsonencode.cc b/libinterp/corefcn/jsonencode.cc
+new file mode 100644
+index 0000000..f8439dc
+--- /dev/null
++++ b/libinterp/corefcn/jsonencode.cc
+@@ -0,0 +1,670 @@
++////////////////////////////////////////////////////////////////////////
++//
++// Copyright (C) 2020-2021 The Octave Project Developers
++//
++// See the file COPYRIGHT.md in the top-level directory of this
++// distribution or <https://octave.org/copyright/>.
++//
++// This file is part of Octave.
++//
++// Octave is free software: you can redistribute it and/or modify it
++// under the terms of the GNU General Public License as published by
++// the Free Software Foundation, either version 3 of the License, or
++// (at your option) any later version.
++//
++// Octave is distributed in the hope that it will be useful, but
++// WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License
++// along with Octave; see the file COPYING.  If not, see
++// <https://www.gnu.org/licenses/>.
++//
++////////////////////////////////////////////////////////////////////////
++
++#if defined (HAVE_CONFIG_H)
++#  include "config.h"
++#endif
++
++#include "builtin-defun-decls.h"
++#include "defun.h"
++#include "error.h"
++#include "errwarn.h"
++#include "oct-string.h"
++#include "ovl.h"
++
++#if defined (HAVE_RAPIDJSON)
++#  include <rapidjson/stringbuffer.h>
++#  include <rapidjson/writer.h>
++#  if defined (HAVE_RAPIDJSON_PRETTYWRITER)
++#    include <rapidjson/prettywriter.h>
++#  endif
++#endif
++
++#if defined (HAVE_RAPIDJSON)
++
++//! Encodes a scalar Octave value into a numerical JSON value.
++//!
++//! @param writer RapidJSON's writer that is responsible for generating JSON.
++//! @param obj scalar Octave value.
++//! @param ConvertInfAndNaN @c bool that converts @c Inf and @c NaN to @c null.
++//!
++//! @b Example:
++//!
++//! @code{.cc}
++//! octave_value obj (7);
++//! encode_numeric (writer, obj, true);
++//! @endcode
++
++template <typename T> void
++encode_numeric (T& writer, const octave_value& obj,
++                const bool& ConvertInfAndNaN)
++{
++  double value = obj.scalar_value ();
++
++  if (obj.is_bool_scalar ())
++    writer.Bool (obj.bool_value ());
++  // Any numeric input from the interpreter will be in double type so in order
++  // to detect ints, we will check if the floor of the input and the input are
++  // equal using fabs (A - B) < epsilon method as it is more accurate.
++  // If value > 999999, MATLAB will encode it in scientific notation (double)
++  else if (fabs (floor (value) - value) < std::numeric_limits<double>::epsilon ()
++           && value <= 999999 && value >= -999999)
++    writer.Int64 (value);
++  // Possibly write NULL for non-finite values (-Inf, Inf, NaN, NA)
++  else if (ConvertInfAndNaN && ! octave::math::isfinite (value))
++    writer.Null ();
++  else if (obj.is_double_type ())
++    writer.Double (value);
++  else
++    error ("jsonencode: unsupported type");
++}
++
++//! Encodes character vectors and arrays into JSON strings.
++//!
++//! @param writer RapidJSON's writer that is responsible for generating JSON.
++//! @param obj character vectors or character arrays.
++//! @param original_dims The original dimensions of the array being encoded.
++//! @param level The level of recursion for the function.
++//!
++//! @b Example:
++//!
++//! @code{.cc}
++//! octave_value obj ("foo");
++//! encode_string (writer, obj, true);
++//! @endcode
++
++template <typename T> void
++encode_string (T& writer, const octave_value& obj,
++               const dim_vector& original_dims, int level = 0)
++{
++  charNDArray array = obj.char_array_value ();
++
++  if (array.isempty ())
++    writer.String ("");
++  else if (array.isvector ())
++    {
++      // Handle the special case where the input is a vector with more than
++      // 2 dimensions (e.g. cat (8, ['a'], ['c'])).  In this case, we don't
++      // split the inner vectors of the input; we merge them into one.
++      if (level == 0)
++        {
++          std::string char_vector = "";
++          for (octave_idx_type i = 0; i < array.numel (); ++i)
++            char_vector += array(i);
++          writer.String (char_vector.c_str ());
++        }
++      else
++        for (octave_idx_type i = 0; i < array.numel () / original_dims(1); ++i)
++          {
++            std::string char_vector = "";
++            for (octave_idx_type k = 0; k < original_dims(1); ++k)
++              char_vector += array(i * original_dims(1) + k);
++            writer.String (char_vector.c_str ());
++          }
++    }
++  else
++    {
++      octave_idx_type idx;
++      octave_idx_type ndims = array.ndims ();
++      dim_vector dims = array.dims ();
++
++      // In this case, we already have a vector. So, we transform it to 2-D
++      // vector in order to be detected by "isvector" in the recursive call
++      if (dims.num_ones () == ndims - 1)
++      {
++        // Handle the special case when the input is a vector with more than
++        // 2 dimensions (e.g. cat (8, ['a'], ['c'])).  In this case, we don't
++        // add dimension brackets and treat it as if it is a vector
++        if (level != 0)
++          // Place an opening and a closing bracket (represents a dimension)
++          // for every dimension that equals 1 until we reach the 2-D vector
++          for (int i = level; i < ndims - 1; ++i)
++            writer.StartArray ();
++
++        encode_string (writer, array.as_row (), original_dims, level);
++
++        if (level != 0)
++          for (int i = level; i < ndims - 1; ++i)
++            writer.EndArray ();
++      }
++      else
++        {
++          // We place an opening and a closing bracket for each dimension
++          // that equals 1 to preserve the number of dimensions when decoding
++          // the array after encoding it.
++          if (original_dims(level) == 1 && level != 1)
++          {
++            writer.StartArray ();
++            encode_string (writer, array, original_dims, level + 1);
++            writer.EndArray ();
++          }
++          else
++            {
++              // The second dimension contains the number of the chars in
++              // the char vector. We want to treat them as a one object,
++              // so we replace it with 1
++              dims(1) = 1;
++
++              for (idx = 0; idx < ndims; ++idx)
++                if (dims(idx) != 1)
++                  break;
++              // Create the dimensions that will be used to call "num2cell"
++              // We called "num2cell" to divide the array to smaller sub-arrays
++              // in order to encode it recursively.
++              // The recursive encoding is necessary to support encoding of
++              // higher-dimensional arrays.
++              RowVector conversion_dims;
++              conversion_dims.resize (ndims - 1);
++              for (octave_idx_type i = 0; i < idx; ++i)
++                conversion_dims(i) = i + 1;
++              for (octave_idx_type i = idx ; i < ndims - 1; ++i)
++                conversion_dims(i) = i + 2;
++
++              octave_value_list args (obj);
++              args.append (conversion_dims);
++
++              Cell sub_arrays = Fnum2cell (args)(0).cell_value ();
++
++              writer.StartArray ();
++
++              for (octave_idx_type i = 0; i < sub_arrays.numel (); ++i)
++                encode_string (writer, sub_arrays(i), original_dims,
++                               level + 1);
++
++              writer.EndArray ();
++            }
++        }
++    }
++}
++
++//! Encodes a struct Octave value into a JSON object or a JSON array depending
++//! on the type of the struct (scalar struct or struct array.)
++//!
++//! @param writer RapidJSON's writer that is responsible for generating JSON.
++//! @param obj struct Octave value.
++//! @param ConvertInfAndNaN @c bool that converts @c Inf and @c NaN to @c null.
++//!
++//! @b Example:
++//!
++//! @code{.cc}
++//! octave_value obj (octave_map ());
++//! encode_struct (writer, obj,true);
++//! @endcode
++
++template <typename T> void
++encode_struct (T& writer, const octave_value& obj, const bool& ConvertInfAndNaN)
++{
++  octave_map struct_array = obj.map_value ();
++  octave_idx_type numel = struct_array.numel ();
++  bool is_array = (numel > 1);
++  string_vector keys = struct_array.keys ();
++
++  if (is_array)
++    writer.StartArray ();
++
++  for (octave_idx_type i = 0; i < numel; ++i)
++    {
++      writer.StartObject ();
++      for (octave_idx_type k = 0; k < keys.numel (); ++k)
++        {
++          writer.Key (keys(k).c_str ());
++          encode (writer, struct_array(i).getfield (keys(k)), ConvertInfAndNaN);
++        }
++      writer.EndObject ();
++    }
++
++  if (is_array)
++    writer.EndArray ();
++}
++
++//! Encodes a Cell Octave value into a JSON array
++//!
++//! @param writer RapidJSON's writer that is responsible for generating JSON.
++//! @param obj Cell Octave value.
++//! @param ConvertInfAndNaN @c bool that converts @c Inf and @c NaN to @c null.
++//!
++//! @b Example:
++//!
++//! @code{.cc}
++//! octave_value obj (cell ());
++//! encode_cell (writer, obj,true);
++//! @endcode
++
++template <typename T> void
++encode_cell (T& writer, const octave_value& obj, const bool& ConvertInfAndNaN)
++{
++  Cell cell = obj.cell_value ();
++
++  writer.StartArray ();
++
++  for (octave_idx_type i = 0; i < cell.numel (); ++i)
++    encode (writer, cell(i), ConvertInfAndNaN);
++
++  writer.EndArray ();
++}
++
++//! Encodes a numeric or logical Octave array into a JSON array
++//!
++//! @param writer RapidJSON's writer that is responsible for generating JSON.
++//! @param obj numeric or logical Octave array.
++//! @param ConvertInfAndNaN @c bool that converts @c Inf and @c NaN to @c null.
++//! @param original_dims The original dimensions of the array being encoded.
++//! @param level The level of recursion for the function.
++//! @param is_logical optional @c bool that indicates if the array is logical.
++//!
++//! @b Example:
++//!
++//! @code{.cc}
++//! octave_value obj (NDArray ());
++//! encode_array (writer, obj,true);
++//! @endcode
++
++template <typename T> void
++encode_array (T& writer, const octave_value& obj, const bool& ConvertInfAndNaN,
++              const dim_vector& original_dims, int level = 0,
++              bool is_logical = false)
++{
++  NDArray array = obj.array_value ();
++  // is_logical is assigned at level 0.  I think this is better than changing
++  // many places in the code, and it makes the function more modular.
++  if (level == 0)
++    is_logical = obj.islogical ();
++
++  if (array.isempty ())
++    {
++      writer.StartArray ();
++      writer.EndArray ();
++    }
++  else if (array.isvector ())
++    {
++      writer.StartArray ();
++      for (octave_idx_type i = 0; i < array.numel (); ++i)
++        {
++          if (is_logical)
++            encode_numeric (writer, bool (array(i)), ConvertInfAndNaN);
++          else
++            encode_numeric (writer, array(i), ConvertInfAndNaN);
++        }
++      writer.EndArray ();
++    }
++  else
++    {
++      octave_idx_type idx;
++      octave_idx_type ndims = array.ndims ();
++      dim_vector dims = array.dims ();
++
++      // In this case, we already have a vector. So,  we transform it to 2-D
++      // vector in order to be detected by "isvector" in the recursive call
++      if (dims.num_ones () == ndims - 1)
++        {
++          // Handle the special case when the input is a vector with more than
++          // 2 dimensions (e.g. ones ([1 1 1 1 1 6])). In this case, we don't
++          // add dimension brackets and treat it as if it is a vector
++          if (level != 0)
++            // Place an opening and a closing bracket (represents a dimension)
++            // for every dimension that equals 1 till we reach the 2-D vector
++            for (int i = level; i < ndims - 1; ++i)
++              writer.StartArray ();
++
++          encode_array (writer, array.as_row (), ConvertInfAndNaN,
++                        original_dims, level + 1, is_logical);
++
++          if (level != 0)
++            for (int i = level; i < ndims - 1; ++i)
++              writer.EndArray ();
++        }
++      else
++        {
++          // We place an opening and a closing bracket for each dimension
++          // that equals 1 to preserve the number of dimensions when decoding
++          // the array after encoding it.
++          if (original_dims (level) == 1)
++          {
++            writer.StartArray ();
++            encode_array (writer, array, ConvertInfAndNaN,
++                          original_dims, level + 1, is_logical);
++            writer.EndArray ();
++          }
++          else
++            {
++              for (idx = 0; idx < ndims; ++idx)
++                if (dims(idx) != 1)
++                  break;
++
++              // Create the dimensions that will be used to call "num2cell"
++              // We called "num2cell" to divide the array to smaller sub-arrays
++              // in order to encode it recursively.
++              // The recursive encoding is necessary to support encoding of
++              // higher-dimensional arrays.
++              RowVector conversion_dims;
++              conversion_dims.resize (ndims - 1);
++              for (octave_idx_type i = 0; i < idx; ++i)
++                conversion_dims(i) = i + 1;
++              for (octave_idx_type i = idx ; i < ndims - 1; ++i)
++                conversion_dims(i) = i + 2;
++
++              octave_value_list args (obj);
++              args.append (conversion_dims);
++
++              Cell sub_arrays = Fnum2cell (args)(0).cell_value ();
++
++              writer.StartArray ();
++
++              for (octave_idx_type i = 0; i < sub_arrays.numel (); ++i)
++                encode_array (writer, sub_arrays(i), ConvertInfAndNaN,
++                              original_dims, level + 1, is_logical);
++
++              writer.EndArray ();
++            }
++        }
++    }
++}
++
++//! Encodes any Octave object. This function only serves as an interface
++//! by choosing which function to call from the previous functions.
++//!
++//! @param writer RapidJSON's writer that is responsible for generating JSON.
++//! @param obj any @ref octave_value that is supported.
++//! @param ConvertInfAndNaN @c bool that converts @c Inf and @c NaN to @c null.
++//!
++//! @b Example:
++//!
++//! @code{.cc}
++//! octave_value obj (true);
++//! encode (writer, obj,true);
++//! @endcode
++
++template <typename T> void
++encode (T& writer, const octave_value& obj, const bool& ConvertInfAndNaN)
++{
++  if (obj.is_real_scalar ())
++    encode_numeric (writer, obj, ConvertInfAndNaN);
++  // As I checked for scalars, this will detect numeric & logical arrays
++  else if (obj.isnumeric () || obj.islogical ())
++    encode_array (writer, obj, ConvertInfAndNaN, obj.dims ());
++  else if (obj.is_string ())
++    encode_string (writer, obj, obj.dims ());
++  else if (obj.isstruct ())
++    encode_struct (writer, obj, ConvertInfAndNaN);
++  else if (obj.iscell ())
++    encode_cell (writer, obj, ConvertInfAndNaN);
++  else if (obj.class_name () == "containers.Map")
++    // To extract the data in containers.Map, convert it to a struct.
++    // The struct will have a "map" field whose value is a struct that
++    // contains the desired data.
++    // To avoid warnings due to that conversion, disable the
++    // "Octave:classdef-to-struct" warning and re-enable it.
++    {
++      octave::unwind_action restore_warning_state
++        ([] (const octave_value_list& old_warning_state)
++         {
++           set_warning_state (old_warning_state);
++         }, set_warning_state ("Octave:classdef-to-struct", "off"));
++
++      encode_struct (writer, obj.scalar_map_value ().getfield ("map"),
++                     ConvertInfAndNaN);
++    }
++  else if (obj.isobject ())
++    {
++      octave::unwind_action restore_warning_state
++        ([] (const octave_value_list& old_warning_state)
++         {
++           set_warning_state (old_warning_state);
++         }, set_warning_state ("Octave:classdef-to-struct", "off"));
++
++      encode_struct (writer, obj.scalar_map_value (), ConvertInfAndNaN);
++    }
++  else
++    error ("jsonencode: unsupported type");
++}
++
++#endif
++
++DEFUN (jsonencode, args, ,
++       doc: /* -*- texinfo -*-
++@deftypefn  {} {@var{JSON_txt} =} jsonencode (@var{object})
++@deftypefnx {} {@var{JSON_txt} =} jsonencode (@dots{}, "ConvertInfAndNaN", @var{TF})
++@deftypefnx {} {@var{JSON_txt} =} jsonencode (@dots{}, "PrettyPrint", @var{TF})
++
++Encode Octave data types into JSON text.
++
++The input @var{object} is an Octave variable to encode.
++
++The output @var{JSON_txt} is the JSON text that contains the result of encoding
++@var{object}.
++
++If the value of the option @qcode{"ConvertInfAndNaN"} is true then @code{NaN},
++@code{NA}, @code{-Inf}, and @code{Inf} values will be converted to
++@qcode{"null"} in the output.  If it is false then they will remain as their
++original values.  The default value for this option is true.
++
++If the value of the option @qcode{"PrettyPrint"} is true, the output text will
++have indentations and line feeds.  If it is false, the output will be condensed
++and written without whitespace.  The default value for this option is false.
++
++Programming Notes:
++
++@itemize @bullet
++@item
++Complex numbers are not supported.
++
++@item
++classdef objects are first converted to structs and then encoded.
++
++@item
++To preserve escape characters (e.g., @qcode{"@backslashchar{}n"}), use
++single-quoted strings.
++
++@item
++Every character after the null character (@qcode{"@backslashchar{}0"}) in a
++double-quoted string will be dropped during encoding.
++
++@item
++Encoding and decoding an array is not guaranteed to preserve the dimensions
++of the array.  In particular, row vectors will be reshaped to column vectors.
++
++@item
++Encoding and decoding is not guaranteed to preserve the Octave data type
++because JSON supports fewer data types than Octave.  For example, if you
++encode an @code{int8} and then decode it, you will get a @code{double}.
++@end itemize
++
++This table shows the conversions from Octave data types to JSON data types:
++
++@multitable @columnfractions 0.50 0.50
++@headitem Octave data type @tab JSON data type
++@item logical scalar @tab Boolean
++@item logical vector @tab Array of Boolean, reshaped to row vector
++@item logical array  @tab nested Array of Boolean
++@item numeric scalar @tab Number
++@item numeric vector @tab Array of Number, reshaped to row vector
++@item numeric array  @tab nested Array of Number
++@item @code{NaN}, @code{NA}, @code{Inf}, @code{-Inf}@*
++when @qcode{"ConvertInfAndNaN" = true} @tab @qcode{"null"}
++@item @code{NaN}, @code{NA}, @code{Inf}, @code{-Inf}@*
++when @qcode{"ConvertInfAndNaN" = false} @tab @qcode{"NaN"}, @qcode{"NaN"},
++@qcode{"Infinity"}, @qcode{"-Infinity"}
++@item empty array    @tab @qcode{"[]"}
++@item character vector @tab String
++@item character array @tab Array of String
++@item empty character array @tab @qcode{""}
++@item cell scalar @tab Array
++@item cell vector @tab Array, reshaped to row vector
++@item cell array @tab Array, flattened to row vector
++@item struct scalar @tab Object
++@item struct vector @tab Array of Object, reshaped to row vector
++@item struct array  @tab nested Array of Object
++@item classdef object @tab Object
++@end multitable
++
++Examples:
++
++@example
++@group
++jsonencode ([1, NaN; 3, 4])
++@result{} [[1,null],[3,4]]
++@end group
++
++@group
++jsonencode ([1, NaN; 3, 4], "ConvertInfAndNaN", false)
++@result{} [[1,NaN],[3,4]]
++@end group
++
++@group
++## Escape characters inside a single-quoted string
++jsonencode ('\0\a\b\t\n\v\f\r')
++@result{} "\\0\\a\\b\\t\\n\\v\\f\\r"
++@end group
++
++@group
++## Escape characters inside a double-quoted string
++jsonencode ("\a\b\t\n\v\f\r")
++@result{} "\u0007\b\t\n\u000B\f\r"
++@end group
++
++@group
++jsonencode ([true; false], "PrettyPrint", true)
++@result{} ans = [
++     true,
++     false
++   ]
++@end group
++
++@group
++jsonencode (['foo', 'bar'; 'foo', 'bar'])
++@result{} ["foobar","foobar"]
++@end group
++
++@group
++jsonencode (struct ('a', Inf, 'b', [], 'c', struct ()))
++@result{} @{"a":null,"b":[],"c":@{@}@}
++@end group
++
++@group
++jsonencode (struct ('structarray', struct ('a', @{1; 3@}, 'b', @{2; 4@})))
++@result{} @{"structarray":[@{"a":1,"b":2@},@{"a":3,"b":4@}]@}
++@end group
++
++@group
++jsonencode (@{'foo'; 'bar'; @{'foo'; 'bar'@}@})
++@result{} ["foo","bar",["foo","bar"]]
++@end group
++
++@group
++jsonencode (containers.Map(@{'foo'; 'bar'; 'baz'@}, [1, 2, 3]))
++@result{} @{"bar":2,"baz":3,"foo":1@}
++@end group
++@end example
++
++@seealso{jsondecode}
++@end deftypefn */)
++{
++#if defined (HAVE_RAPIDJSON)
++
++  int nargin = args.length ();
++  // jsonencode has two options 'ConvertInfAndNaN' and 'PrettyPrint'
++  if (nargin != 1 && nargin != 3 && nargin != 5)
++    print_usage ();
++
++  // Initialize options with their default values
++  bool ConvertInfAndNaN = true;
++  bool PrettyPrint = false;
++
++  for (octave_idx_type i = 1; i < nargin; ++i)
++    {
++      if (! args(i).is_string ())
++        error ("jsonencode: option must be a string");
++      if (! args(i+1).is_bool_scalar ())
++        error ("jsonencode: option value must be a logical scalar");
++
++      std::string option_name = args(i++).string_value ();
++      if (octave::string::strcmpi (option_name, "ConvertInfAndNaN"))
++        ConvertInfAndNaN = args(i).bool_value ();
++      else if (octave::string::strcmpi (option_name, "PrettyPrint"))
++        PrettyPrint = args(i).bool_value ();
++      else
++        error ("jsonencode: "
++               R"(Valid options are "ConvertInfAndNaN" and "PrettyPrint")");
++    }
++
++# if ! defined (HAVE_RAPIDJSON_PRETTYWRITER)
++  if (PrettyPrint)
++    {
++      warn_disabled_feature ("jsonencode",
++                             R"(the "PrettyPrint" option of RapidJSON)");
++      PrettyPrint = false;
++    }
++# endif
++
++  rapidjson::StringBuffer json;
++  if (PrettyPrint)
++    {
++# if defined (HAVE_RAPIDJSON_PRETTYWRITER)
++      rapidjson::PrettyWriter<rapidjson::StringBuffer, rapidjson::UTF8<>,
++                              rapidjson::UTF8<>, rapidjson::CrtAllocator,
++                              rapidjson::kWriteNanAndInfFlag> writer (json);
++      writer.SetIndent (' ', 2);
++      encode (writer, args(0), ConvertInfAndNaN);
++# endif
++    }
++  else
++    {
++      rapidjson::Writer<rapidjson::StringBuffer, rapidjson::UTF8<>,
++                        rapidjson::UTF8<>, rapidjson::CrtAllocator,
++                        rapidjson::kWriteNanAndInfFlag> writer (json);
++      encode (writer, args(0), ConvertInfAndNaN);
++    }
++
++  return octave_value (json.GetString ());
++
++#else
++
++  octave_unused_parameter (args);
++
++  err_disabled_feature ("jsonencode", "JSON encoding through RapidJSON");
++
++#endif
++}
++
++/*
++Functional BIST tests are located in test/json/jsonencode_BIST.tst
++
++## Input validation tests
++%!testif HAVE_RAPIDJSON
++%! fail ("jsonencode ()");
++%! fail ("jsonencode (1, 2)");
++%! fail ("jsonencode (1, 2, 3, 4)");
++%! fail ("jsonencode (1, 2, 3, 4, 5, 6)");
++%! fail ("jsonencode (1, 2, true)", "option must be a string");
++%! fail ("jsonencode (1, 'string', ones (2,2))", ...
++%!       "option value must be a logical scalar");
++%! fail ("jsonencode (1, 'foobar', true)", ...
++%!       'Valid options are "ConvertInfAndNaN"');
++
++%!testif HAVE_RAPIDJSON; ! __have_feature__ ("RAPIDJSON_PRETTYWRITER")
++%! fail ("jsonencode (1, 'PrettyPrint', true)", ...
++%!       "warning", 'the "PrettyPrint" option of RapidJSON was unavailable');
++
++*/
+diff --git a/libinterp/corefcn/module.mk b/libinterp/corefcn/module.mk
+index 2f2e16c..526d7b5 100644
+--- a/libinterp/corefcn/module.mk
++++ b/libinterp/corefcn/module.mk
+@@ -177,6 +177,8 @@ COREFCN_SRC = \
+   %reldir%/inv.cc \
+   %reldir%/interpreter-private.cc \
+   %reldir%/interpreter.cc \
++  %reldir%/jsondecode.cc \
++  %reldir%/jsonencode.cc \
+   %reldir%/kron.cc \
+   %reldir%/load-path.cc \
+   %reldir%/load-save.cc \
+diff --git a/libinterp/corefcn/utils.cc b/libinterp/corefcn/utils.cc
+index e817d5a..30c8be8 100644
+--- a/libinterp/corefcn/utils.cc
++++ b/libinterp/corefcn/utils.cc
+@@ -124,6 +124,130 @@ Return true if @var{name} is a valid variable name.
+ %!error isvarname ("foo", "bar")
+ */
+ 
++namespace octave
++{
++  bool
++  make_valid_name (std::string& str, const make_valid_name_options& options)
++  {
++    // If `isvarname (str)`, no modifications necessary.
++    if (valid_identifier (str) && ! is_keyword (str))
++      return false;
++
++    // Change whitespace followed by lowercase letter to uppercase, except
++    // for the first
++    bool previous = false;
++    bool any_non_space = false;
++    for (char& c : str)
++      {
++        c = ((any_non_space && previous && std::isalpha (c)) ? std::toupper (c)
++                                                             : c);
++        previous = std::isspace (c);
++        any_non_space |= (! previous);  // once true, always true
++      }
++
++    // Remove any whitespace.
++    str.erase (std::remove_if (str.begin(), str.end(),
++                               [] (unsigned char x)
++                                  { return std::isspace(x); }),
++               str.end());
++    if (str.empty ())
++      str = options.get_prefix ();
++
++    // Add prefix and capitalize first character, if `str` is a reserved
++    // keyword.
++    if (is_keyword (str))
++      {
++        str[0] = std::toupper (str[0]);
++        str = options.get_prefix () + str;
++      }
++
++    // Add prefix if first character is not a letter or underscore.
++    if (! std::isalpha (str[0]) && str[0] != '_')
++      str = options.get_prefix () + str;
++
++    // Replace non alphanumerics or underscores
++    if (options.get_replacement_style () == "underscore")
++      for (char& c : str)
++        c = (std::isalnum (c) ? c : '_');
++    else if (options.get_replacement_style () == "delete")
++      str.erase (std::remove_if (str.begin(), str.end(),
++                                 [] (unsigned char x)
++                                    { return ! std::isalnum (x) && x != '_'; }),
++                 str.end());
++    else if (options.get_replacement_style () == "hex")
++      {
++        const std::string permitted_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
++                                            "abcdefghijklmnopqrstuvwxyz"
++                                            "_0123456789";
++        // Get the first non-permitted char.
++        std::size_t pos = str.find_first_not_of (permitted_chars);
++        // Buffer for hex string "0xFF" (+1 for null terminator).
++        char hex_str[5];
++        // Repeat until end of string.
++        while (pos != std::string::npos)
++          {
++            // Replace non-permitted char by it's hex value.
++            std::snprintf (hex_str, sizeof (hex_str), "0x%02X", str[pos]);
++            str.replace (pos, 1, hex_str);
++            // Get the next occurrence from the last position.
++            // (-1 for null terminator)
++            pos = str.find_first_not_of (permitted_chars,
++                                         pos + sizeof (hex_str) - 1);
++          }
++      }
++
++    return true;
++  }
++
++  make_valid_name_options::make_valid_name_options
++    (const octave_value_list& args)
++  {
++    auto nargs = args.length ();
++    if (nargs == 0)
++      return;
++
++    // nargs = 2, 4, 6, ... permitted
++    if (nargs % 2)
++      error ("makeValidName: property/value options must occur in pairs");
++
++    auto str_to_lower = [] (std::string& s)
++                           {
++                             std::transform (s.begin(), s.end(), s.begin(),
++                                             [] (unsigned char c)
++                                                { return std::tolower(c); });
++                           };
++
++    for (auto i = 0; i < nargs; i = i + 2)
++      {
++        std::string parameter = args(i).xstring_value ("makeValidName: "
++          "option argument must be a string");
++        str_to_lower (parameter);
++        if (parameter == "replacementstyle")
++          {
++            m_replacement_style = args(i + 1).xstring_value ("makeValidName: "
++              "'ReplacementStyle' value must be a string");
++            str_to_lower (m_replacement_style);
++            if ((m_replacement_style != "underscore")
++                && (m_replacement_style != "delete")
++                && (m_replacement_style != "hex"))
++              error ("makeValidName: invalid 'ReplacementStyle' value '%s'",
++                     m_replacement_style.c_str ());
++          }
++        else if (parameter == "prefix")
++          {
++            m_prefix = args(i + 1).xstring_value ("makeValidName: "
++              "'Prefix' value must be a string");
++            if (! valid_identifier (m_prefix)
++                || is_keyword (m_prefix))
++              error ("makeValidName: invalid 'Prefix' value '%s'",
++                     m_prefix.c_str ());
++          }
++        else
++          error ("makeValidName: unknown property '%s'", parameter.c_str ());
++      }
++  }
++}
++
+ // Return TRUE if F and G are both names for the same file.
+ 
+ bool
+diff --git a/libinterp/corefcn/utils.h b/libinterp/corefcn/utils.h
+index c6055a1..afb442f 100644
+--- a/libinterp/corefcn/utils.h
++++ b/libinterp/corefcn/utils.h
+@@ -41,6 +41,61 @@ class string_vector;
+ extern OCTINTERP_API bool valid_identifier (const char *s);
+ extern OCTINTERP_API bool valid_identifier (const std::string& s);
+ 
++namespace octave
++{
++  class
++  OCTINTERP_API
++  make_valid_name_options
++  {
++  public:
++
++    //! Default options for `make_valid_name` function calls.
++    //!
++    //! Calling the constructor without arguments is equivalent to:
++    //!
++    //! @code{.cc}
++    //! make_valid_name_options (ovl ("ReplacementStyle", "underscore",
++    //!                               "Prefix", "x"));
++    //! @endcode
++
++    make_valid_name_options () = default;
++
++    //! Extract attribute-value-pairs from an octave_value_list of strings.
++    //!
++    //! If attributes occur multiple times, the rightmost pair is chosen.
++    //!
++    //! @code{.cc}
++    //! make_valid_name_options (ovl ("ReplacementStyle", "hex", ...));
++    //! @endcode
++
++    make_valid_name_options (const octave_value_list& args);
++
++    //! @return ReplacementStyle, see `help matlab.lang.makeValidName`.
++
++    const std::string&
++    get_replacement_style () const { return m_replacement_style; }
++
++    //! @return Prefix, see `help matlab.lang.makeValidName`.
++
++    const std::string& get_prefix () const { return m_prefix; }
++
++  private:
++
++    std::string m_replacement_style{"underscore"};
++    std::string m_prefix{"x"};
++  };
++
++  //! Modify @p str to be a valid variable name.
++  //!
++  //! @param str input string
++  //! @param options see also `help matlab.lang.makeValidName`.
++  //!
++  //! @return true, if @p str was modified.
++
++  extern OCTINTERP_API bool
++  make_valid_name (std::string& str, const make_valid_name_options& options);
++}
++
+ extern OCTINTERP_API bool
+ same_file (const std::string& f, const std::string& g);
+ 
+diff --git a/liboctave/util/unwind-prot.cc b/liboctave/util/unwind-prot.cc
+index 4fdeaaf..9982998 100644
+--- a/liboctave/util/unwind-prot.cc
++++ b/liboctave/util/unwind-prot.cc
+@@ -38,4 +38,13 @@ namespace octave
+        "It is a bug in Octave for this to happen.  "
+        "Please help improve Octave by reporting it.");
+   }
++  
++  void
++  unwind_action_safe::warn_unhandled_exception (void) const
++  {
++    (*current_liboctave_warning_handler)
++      ("unhandled exception in unwind_action_safe handler.  "
++       "It is a bug in Octave for this to happen.  "
++       "Please help improve Octave by reporting it.");
++  }
+ }
+diff --git a/liboctave/util/unwind-prot.h b/liboctave/util/unwind-prot.h
+index 7093b60..6f9fb50 100644
+--- a/liboctave/util/unwind-prot.h
++++ b/liboctave/util/unwind-prot.h
+@@ -30,6 +30,7 @@ along with Octave; see the file COPYING.  If not, see
+ 
+ #include <stack>
+ #include <memory>
++#include <functional>
+ 
+ #include "action-container.h"
+ 
+@@ -127,6 +128,226 @@ namespace octave
+         }
+     }
+   };
++  
++  // In most cases, the following are preferred for efficiency.  Some
++  // cases may require the flexibility of the general unwind_protect
++  // mechanism defined above.
++
++  // Perform action at end of the current scope when unwind_action
++  // object destructor is called.
++  //
++  // For example:
++  //
++  //   void fcn (int val) { ... }
++  //
++  // ...
++  //
++  //   {
++  //     int val = 42;
++  //
++  //     // template parameters, std::bind and std::function provide
++  //     // flexibility in calling forms (function pointer or lambda):
++  //
++  //     unwind_action act1 (fcn, val);
++  //     unwind_action act2 ([val] (void) { fcn (val); });
++  //   }
++  //
++  // NOTE: Don't forget to provide a name for the unwind_action
++  // variable.  If you write
++  //
++  //   unwind_action /* NO NAME! */ (...);
++  //
++  // then the destructor for the temporary anonymous object will be
++  // called immediately after the object is constructed instead of at
++  // the end of the current scope.
++
++  class OCTAVE_API unwind_action
++  {
++  public:
++
++    unwind_action (void) : m_fcn () { }
++
++    // FIXME: Do we need to apply std::forward to the arguments to
++    // std::bind here?
++
++    template <typename F, typename... Args>
++    unwind_action (F&& fcn, Args&&... args)
++      : m_fcn (std::bind (fcn, args...))
++    { }
++
++    // No copying!
++
++    unwind_action (const unwind_action&) = delete;
++
++    unwind_action& operator = (const unwind_action&) = delete;
++
++    ~unwind_action (void) { run (); }
++
++    // FIXME: Do we need to apply std::forward to the arguments to
++    // std::bind here?
++
++    template <typename F, typename... Args>
++    void set (F&& fcn, Args&&... args)
++    {
++      m_fcn = std::bind (fcn, args...);
++    }
++
++    void set (void) { m_fcn = nullptr; }
++
++    // Alias for set() which is clearer about programmer intention.
++    void discard (void) { set (); }
++
++    void run (void)
++    {
++      if (m_fcn)
++        m_fcn ();
++
++      // Invalidate so action won't run again when object is deleted.
++      discard ();
++    }
++
++  private:
++
++    std::function<void (void)> m_fcn;
++  };
++
++  // Like unwind_action, but this one will guard against the possibility
++  // of seeing an exception (or interrupt) in the cleanup actions.
++  // Not that we can do much about it, but at least we won't crash.
++
++  class OCTAVE_API unwind_action_safe
++  {
++  private:
++
++    void warn_unhandled_exception (void) const;
++
++  public:
++
++    unwind_action_safe (void) : m_fcn () { }
++
++    // FIXME: Do we need to apply std::forward to the arguments to
++    // std::bind here?
++
++    template <typename F, typename... Args>
++    unwind_action_safe (F&& fcn, Args&&... args)
++      : m_fcn (std::bind (fcn, args...))
++    { }
++
++    // No copying!
++
++    unwind_action_safe (const unwind_action_safe&) = delete;
++
++    unwind_action_safe& operator = (const unwind_action_safe&) = delete;
++
++    ~unwind_action_safe (void) { run (); }
++
++    // FIXME: Do we need to apply std::forward to the arguments to
++    // std::bind here?
++
++    template <typename F, typename... Args>
++    void set (F&& fcn, Args&&... args)
++    {
++      m_fcn = std::bind (fcn, args...);
++    }
++
++    void set (void) { m_fcn = nullptr; }
++
++    // Alias for set() which is clearer about programmer intention.
++    void discard (void) { set (); }
++
++    void run (void)
++    {
++      try
++        {
++          if (m_fcn)
++            m_fcn ();
++        }
++      catch (...) // Yes, the black hole.  Remember we're in a destructor.
++        {
++          warn_unhandled_exception ();
++        }
++
++      // Invalidate so action won't run again when object is deleted.
++      discard ();
++    }
++
++  private:
++
++    std::function<void (void)> m_fcn;
++  };
++
++  // Reset a variable value at the end of the current scope when
++  // unwind_protect_var object destructor is called.
++  //
++  // For example:
++  //
++  //   {
++  //     int x = 42;
++  //     unwind_protect_var<int> upv (x);  // X will be reset at end of scope
++  //     x = 13;                           // Set temporary value.
++  //   }
++  //
++  // Temporary value may be set at construction:
++  //
++  //   {
++  //     int x = ...;
++  //     unwind_protect_var<int> upv (x, 13);  // X will be reset.
++  //                                           // temporary value is 13.
++  //   }
++  //
++  // NOTE: Don't forget to provide a name for the unwind_protect_var
++  // variable.  If you write
++  //
++  //   unwind_protect_var<type> /* NO NAME! */ (...);
++  //
++  // then the destructor for the temporary anonymous object will be
++  // called immediately after the object is constructed instead of at
++  // the end of the current scope.
++  //
++  // FIXME: Once we are able to use C++17, class template argument
++  // deduction will allow us to omit the explicit template type from the
++  // constructor expression:
++  //
++  //   unwind_protect_var upv (...);
++
++  template <typename T>
++  class unwind_protect_var
++  {
++  public:
++
++    // Ensure that the value referenced by REF will be reset when this
++    // unwind_protect_var object goes out of scope.
++
++    explicit unwind_protect_var (T& ref)
++      : m_ref (ref), m_val (ref)
++    { }
++
++    // Set the value referenced by REF to NEW_VAL and ensure that it
++    // will be reset to its original value when this
++    // unwind_protect_var object goes out of scope.
++
++    unwind_protect_var (T& ref, const T& new_val)
++      : m_ref (ref), m_val (ref)
++    {
++      m_ref = new_val;
++    }
++
++    // No copying!
++
++    unwind_protect_var (const unwind_protect_var&) = delete;
++
++    unwind_protect_var& operator = (const unwind_protect_var&) = delete;
++
++    ~unwind_protect_var (void)
++    {
++      m_ref = m_val;
++    }
++
++  private:
++
++    T& m_ref;
++    T m_val;
++  };
+ }
+ 
+ #if defined (OCTAVE_USE_DEPRECATED_FUNCTIONS)
+diff --git a/scripts/help/__unimplemented__.m b/scripts/help/__unimplemented__.m
+index 5a24902..b2d160c 100644
+--- a/scripts/help/__unimplemented__.m
++++ b/scripts/help/__unimplemented__.m
+@@ -936,8 +936,6 @@ function rlist = missing_functions ()
+   "javaMethodEDT",
+   "javaObjectEDT",
+   "join",
+-  "jsondecode",
+-  "jsonencode",
+   "juliandate",
+   "keys",
+   "labeledge",
+diff --git a/test/json/jsondecode_BIST.tst b/test/json/jsondecode_BIST.tst
+new file mode 100644
+index 0000000..76ab3f6
+--- /dev/null
++++ b/test/json/jsondecode_BIST.tst
+@@ -0,0 +1,556 @@
++%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
++%% Unit tests for jsondecode()
++%%
++%% Code in libinterp/corefcn/jsondecode.cc
++%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
++%% Note: This script is intended to also run under Matlab to verify
++%%       compatibility.  Preserve Matlab-formatting when making changes.
++
++%%% Test 1: decode null values
++
++%% null, in non-numeric arrays -> Empty double []
++%!testif HAVE_RAPIDJSON
++%! json = '["str", 5, null, true]';
++%! exp  = {'str'; 5; []; true};
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%% null, in numeric arrays to NaN (extracted from JSONio)
++%!testif HAVE_RAPIDJSON
++%! json = '[1, 2, null, 3]';
++%! exp  = [1; 2; NaN; 3];
++%! obs  = jsondecode (json);
++%! assert (isequaln (obs, exp));
++
++%% corner case: array of null values
++%!testif HAVE_RAPIDJSON
++%! json = '[null, null, null]';
++%! exp  = [NaN; NaN; NaN];
++%! obs  = jsondecode (json);
++%! assert (isequaln (obs, exp));
++
++%%% Test 2: Decode scalar Boolean, Number, and String values
++
++%!testif HAVE_RAPIDJSON
++%! assert (isequal (jsondecode ('true'), logical (1)));
++%! assert (isa (jsondecode ('true'), 'logical'));
++%! assert (isequal (jsondecode ('false'), logical (0)));
++%! assert (isa (jsondecode ('false'), 'logical'));
++%! assert (isequal (jsondecode ('123.45'), 123.45));
++%! assert (isequal (jsondecode ('"hello there"'), 'hello there'));
++
++%%% Test 3: Decode Array of Booleans, Numbers, and Strings values
++
++%% vectors are always rendered as column vectors
++%!testif HAVE_RAPIDJSON
++%! json = '[true, true, false, true]';
++%! exp  = logical ([1; 1; 0; 1]);
++%! obs  = jsondecode (json);
++%! assert (isa (obs, 'logical'));
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON <*59135>
++%! json = '[[true, true], [false, true]]';
++%! exp  = logical ([1, 1; 0, 1]);
++%! obs  = jsondecode (json);
++%! assert (isa (obs, 'logical'));
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! json = '["true", "true", "false", "true"]';
++%! exp  = {'true'; 'true'; 'false'; 'true'};
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! json = '["foo", "bar", ["foo", "bar"]]';
++%! exp  = {'foo'; 'bar'; {'foo'; 'bar'}};
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%% vectors are always rendered as column vectors
++%!testif HAVE_RAPIDJSON
++%! json = '[15000, 5, 12.25, 1502302.3012]';
++%! exp  = [15000; 5; 12.25; 1502302.3012];
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%% row vectors are preserved by adding one level of hierarchy
++%% extracted from JSONio
++%!testif HAVE_RAPIDJSON
++%! json = '[[1,2]]';
++%! exp  = [1, 2];
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%% If same dimensions -> transform to an array (extracted from JSONio)
++%!testif HAVE_RAPIDJSON
++%! json = '[[1, 2], [3, 4]]';
++%! exp  = [1, 2; 3, 4];
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%% extracted from JSONio
++%!testif HAVE_RAPIDJSON
++%! json = '[[[1, 2], [3, 4]], [[5, 6], [7, 8]]]';
++%! exp  = cat (3, [1, 3; 5, 7], [2, 4; 6, 8]);
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%% try different dimensions for the array
++%!testif HAVE_RAPIDJSON
++%! json = '[[[1, 2, -1], [3, 4, null]], [[5, 6, Inf], [7, 8, -Inf]]]';
++%! exp  = cat (3, [1, 3; 5, 7], [2, 4; 6, 8], [-1, NaN; Inf, -Inf]);
++%! obs  = jsondecode (json);
++%! assert (isequaln (obs, exp));
++
++%% try different dimensions for the array
++%!testif HAVE_RAPIDJSON
++%! json = '[[[1, 2], [3, 4]], [[5, 6], [7, 8]], [[9, 10], [11, 12]]]';
++%! exp  = cat (3, [1, 3; 5, 7; 9, 11], [2, 4; 6, 8; 10, 12]);
++%! obs  = jsondecode (json);
++%! assert (isequaln (obs, exp));
++
++%% try higher dimensions for the array
++%!testif HAVE_RAPIDJSON
++%! json = ['[[[[1,-1], [2,-2]],[[3,-3],[4,-4]]],[[[5,-5],[6,-6]],[[7,-7],', ...
++%!         '[8,-8]]],[[[9,-9], [10,-10]],[[11,-11],[12,-12]]],', ...
++%!         '[[[13,-13],[14,-14]],[[15,-15],[16,-16]]]]'];
++%! var1 = cat (3, [1, 3; 5, 7; 9, 11; 13, 15], [2, 4; 6, 8; 10, 12; 14, 16]);
++%! var2 = cat (3, [-1, -3; -5, -7; -9, -11; -13, -15], ...
++%!             [-2, -4; -6, -8; -10, -12; -14, -16]);
++%! exp  = cat (4, var1, var2);
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! json = '[[true, false], [true, false], [true, false]]';
++%! exp  = logical ([1 0; 1 0; 1 0]);
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%% If different dimensions -> transform to a cell array (extracted from JSONio)
++%!testif HAVE_RAPIDJSON
++%! json = '[[1, 2], [3, 4, 5]]';
++%! exp  = {[1; 2]; [3; 4; 5]};
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%% extracted from JSONio
++%%!testif HAVE_RAPIDJSON
++%! json = '[1, 2, [3, 4]]';
++%! exp  = {1; 2; [3; 4]};
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! json = '[true, false, [true, false, false]]';
++%! exp  = {true; false; logical([1; 0; 0])};
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++%! assert (isa (obs{1}, 'logical'));
++%! assert (isa (obs{2}, 'logical'));
++%! assert (isa (obs{3}, 'logical'));
++
++%%% Test 4: decode JSON Objects
++
++%% Check decoding of Boolean, Number, and String values inside an Object
++%!testif HAVE_RAPIDJSON
++%! json = '{"number": 3.14, "string": "foobar", "boolean": false}';
++%! exp  = struct ('number', 3.14, 'string', 'foobar', 'boolean', false);
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++%! assert (isa (obs.boolean, 'logical'));
++
++%% Check decoding of null values and arrays inside an object & makeValidName
++%!testif HAVE_RAPIDJSON
++%! json = [ '{"nonnumeric array": ["str", 5, null],' ...
++%!          '"numeric array": [1, 2, null]}' ];
++%! exp  = struct ('nonnumericArray', {{'str'; 5; []}}, ...
++%!                'numericArray', {[1; 2; NaN]});
++%! obs  = jsondecode (json);
++%! assert (isequaln (obs, exp));
++
++%% Check decoding of objects inside an object & makeValidName (from JSONio)
++%!testif HAVE_RAPIDJSON
++%! json = '{"object": {"  field 1   ": 1, "field-   2": 2, "3field": 3, "": 1}}';
++%! exp  = struct ('object', ...
++%!                struct ('field1', 1, 'field_2', 2, 'x3field', 3, 'x', 1));
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%% Check decoding of empty objects, empty arrays, and Inf inside an object
++%!testif HAVE_RAPIDJSON
++%! json = '{"a": Inf, "b": [], "c": {}}';
++%! exp  = struct ('a', Inf, 'b', [], 'c', struct ());
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%% Check decoding of string arrays inside an object & makeValidName
++%% extracted from JSONio
++%!testif HAVE_RAPIDJSON
++%! json = '{"%string.array": ["Statistical","Parametric","Mapping"]}';
++%! exp  = struct ('x_string_array', ...
++%!                {{'Statistical'; 'Parametric'; 'Mapping'}});
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%% extracted from jsonlab
++%!testif HAVE_RAPIDJSON
++%! json = ['{' , ...
++%!     '"glossary": { ', ...
++%!         '"title": "example glossary",', ...
++%! 		'"GlossDiv": {', ...
++%!             '"title": "S",', ...
++%! 			'"GlossList": {', ...
++%!                 '"GlossEntry": {', ...
++%!                     '"ID": "SGML",', ...
++%! 					'"SortAs": "SGML",', ...
++%! 					'"GlossTerm": "Standard Generalized Markup Language",', ...
++%! 					'"Acronym": "SGML",', ...
++%! 					'"Abbrev": "ISO 8879:1986",', ...
++%! 					'"GlossDef": {', ...
++%!                         '"para": "A meta-markup language, ', ...
++%!                         'used to create markup languages such as DocBook.",', ...
++%! 						'"GlossSeeAlso": ["GML", "XML"]', ...
++%!                     '},', ...
++%! 					'"GlossSee": "markup"', ...
++%!                 '}', ...
++%!             '}', ...
++%!         '}', ...
++%!     '}', ...
++%! '}'];
++%! var1 = struct ('para', ['A meta-markup language, used to create ' ...
++%!                         'markup languages such as DocBook.'], ...
++%!                'GlossSeeAlso', {{'GML'; 'XML'}});
++%! var2 = struct ('ID', 'SGML', 'SortAs', 'SGML', ...
++%!                'GlossTerm', 'Standard Generalized Markup Language', ...
++%!                'Acronym', 'SGML', 'Abbrev', 'ISO 8879:1986', ...
++%!                'GlossDef', var1, 'GlossSee', 'markup');
++%! exp  = struct ('glossary', ...
++%!                struct ('title', 'example glossary', ...
++%!                        'GlossDiv', struct ('title', 'S', ...
++%!                                            'GlossList', ...
++%!                                            struct ('GlossEntry', var2))));
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%%% Test 5: decode Array of JSON objects
++
++%% Arrays with the same field names in the same order (extracted from JSONio)
++%!testif HAVE_RAPIDJSON
++%! json = '{"structarray": [{"a":1,"b":2},{"a":3,"b":4}]}';
++%! exp  = struct ('structarray', struct ('a', {1; 3}, 'b', {2; 4}));
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%% Different field names before calling makeValidName, BUT the same after
++%% calling it, resulting in structarray.
++%! json = [ '[', ...
++%!       '{', ...
++%!         '"i*d": 0,', ...
++%!         '"12name": "Osborn"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"i/d": 1,', ...
++%!         '"12name": "Mcdowell"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"i+d": 2,', ...
++%!         '"12name": "Jewel"', ...
++%!       '}', ...
++%!     ']'];
++%! exp  = struct ('i_d', {0; 1; 2}, ...
++%!                'x12name', {'Osborn'; 'Mcdowell'; 'Jewel'});
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%% Arrays with the same field names in the same order.
++%% JSON text is generated from json-generator.com
++%!testif HAVE_RAPIDJSON
++%! json = ['[', ...
++%!   '{', ...
++%!     '"x_id": "5ee28980fc9ab3",', ...
++%!     '"index": 0,', ...
++%!     '"guid": "b229d1de-f94a",', ...
++%!     '"latitude": -17.124067,', ...
++%!     '"longitude": -61.161831,', ...
++%!     '"friends": [', ...
++%!       '{', ...
++%!         '"id": 0,', ...
++%!         '"name": "Collins"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id": 1,', ...
++%!         '"name": "Hays"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id": 2,', ...
++%!         '"name": "Griffin"', ...
++%!       '}', ...
++%!     ']', ...
++%!   '},', ...
++%!   '{', ...
++%!     '"x_id": "5ee28980dd7250",', ...
++%!     '"index": 1,', ...
++%!     '"guid": "39cee338-01fb",', ...
++%!     '"latitude": 13.205994,', ...
++%!     '"longitude": -37.276231,', ...
++%!     '"friends": [', ...
++%!       '{', ...
++%!         '"id": 0,', ...
++%!         '"name": "Osborn"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id": 1,', ...
++%!         '"name": "Mcdowell"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id": 2,', ...
++%!         '"name": "Jewel"', ...
++%!       '}', ...
++%!     ']', ...
++%!   '},', ...
++%!   '{', ...
++%!     '"x_id": "5ee289802422ac",', ...
++%!     '"index": 2,', ...
++%!     '"guid": "3db8d55a-663e",', ...
++%!     '"latitude": -35.453456,', ...
++%!     '"longitude": 14.080287,', ...
++%!     '"friends": [', ...
++%!       '{', ...
++%!         '"id": 0,', ...
++%!         '"name": "Socorro"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id": 1,', ...
++%!         '"name": "Darla"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id": 2,', ...
++%!         '"name": "Leanne"', ...
++%!       '}', ...
++%!     ']', ...
++%!   '}', ...
++%! ']'];
++%! var1 = struct ('id', {0; 1; 2}, 'name', {'Collins'; 'Hays'; 'Griffin'});
++%! var2 = struct ('id', {0; 1; 2}, 'name', {'Osborn'; 'Mcdowell'; 'Jewel'});
++%! var3 = struct ('id', {0; 1; 2}, 'name', {'Socorro'; 'Darla'; 'Leanne'});
++%! exp  = struct (...
++%!   'x_id', {'5ee28980fc9ab3'; '5ee28980dd7250'; '5ee289802422ac'}, ...
++%!   'index', {0; 1; 2}, ...
++%!   'guid', {'b229d1de-f94a'; '39cee338-01fb'; '3db8d55a-663e'}, ...
++%!   'latitude', {-17.124067; 13.205994; -35.453456}, ...
++%!   'longitude', {-61.161831; -37.276231; 14.080287}, ...
++%!   'friends', {var1; var2; var3});
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%% Arrays with the same field names in different order (extracted from JSONio)
++%% Results in cell array, rather than struct array
++%!testif HAVE_RAPIDJSON
++%! json = '{"cellarray": [{"a":1,"b":2},{"b":3,"a":4}]}';
++%! exp  = struct ('cellarray', {{struct('a', 1, 'b', 2); ...
++%!                               struct('b', 3, 'a', 4)}});
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%% Arrays with different field names (extracted from JSONio)
++%!testif HAVE_RAPIDJSON
++%! json = '{"cellarray": [{"a":1,"b":2},{"a":3,"c":4}]}';
++%! exp  = struct ('cellarray', {{struct('a', 1, 'b', 2); ...
++%!                               struct('a', 3, 'c', 4)}});
++%! obs  = jsondecode (json);
++%! assert (isequal (obs, exp));
++
++%% Arrays with different field names and a big test
++%!testif HAVE_RAPIDJSON
++%! json = ['[', ...
++%!   '{', ...
++%!     '"x_id": "5ee28980fc9ab3",', ...
++%!     '"index": 0,', ...
++%!     '"guid": "b229d1de-f94a",', ...
++%!     '"latitude": -17.124067,', ...
++%!     '"longitude": -61.161831,', ...
++%!     '"friends": [', ...
++%!       '{', ...
++%!         '"id": 0,', ...
++%!         '"name": "Collins"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id": 1,', ...
++%!         '"name": "Hays"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id": 2,', ...
++%!         '"name": "Griffin"', ...
++%!       '}', ...
++%!     ']', ...
++%!   '},', ...
++%!   '{"numeric array": ["str", 5, null], "nonnumeric array": [1, 2, null]},', ...
++%!   '{', ...
++%!      '"firstName": "John",', ...
++%!      '"lastName": "Smith",', ...
++%!      '"age": 25,', ...
++%!      '"address":', ...
++%!      '{', ...
++%!          '"streetAddress": "21 2nd Street",', ...
++%!          '"city": "New York",', ...
++%!          '"state": "NY"', ...
++%!      '},', ...
++%!      '"phoneNumber":', ...
++%!          '{', ...
++%!            '"type": "home",', ...
++%!            '"number": "212 555-1234"', ...
++%!          '}', ...
++%!  '}]'];
++%! var1 = struct ('x_id', '5ee28980fc9ab3', 'index', 0, ...
++%!                'guid', 'b229d1de-f94a', 'latitude', -17.124067, ...
++%!                'longitude', -61.161831, ...
++%!                'friends', ...
++%!                struct ('id', {0; 1; 2}, ...
++%!                        'name', {'Collins'; 'Hays'; 'Griffin'}));
++%! var2 = struct ('numericArray', {{'str'; 5; []}}, ...
++%!                'nonnumericArray', {[1; 2; NaN]});
++%! var3 = struct ('firstName', 'John', 'lastName', 'Smith', 'age', 25, ...
++%!                'address', ...
++%!                struct ('streetAddress', '21 2nd Street', ...
++%!                        'city', 'New York', 'state', 'NY'), ...
++%!                'phoneNumber', ...
++%!                struct ('type', 'home', 'number', '212 555-1234'));
++%! exp = {var1; var2; var3};
++%! obs  = jsondecode (json);
++%! assert (isequaln (obs, exp));
++
++%%% Test 6: decode Array of different JSON data types
++
++%!testif HAVE_RAPIDJSON
++%! json = ['[null, true, Inf, 2531.023, "hello there", ', ...
++%!   '{', ...
++%!     '"x_id": "5ee28980dd7250",', ...
++%!     '"index": 1,', ...
++%!     '"guid": "39cee338-01fb",', ...
++%!     '"latitude": 13.205994,', ...
++%!     '"longitude": -37.276231,', ...
++%!     '"friends": [', ...
++%!       '{', ...
++%!         '"id": 0,', ...
++%!         '"name": "Osborn"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id": 1,', ...
++%!         '"name": "Mcdowell"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id": 2,', ...
++%!         '"name": "Jewel"', ...
++%!       '}', ...
++%!     ']', ...
++%!   '}]'];
++%! var =  struct ('x_id', '5ee28980dd7250', 'index', 1, ...
++%!                'guid', '39cee338-01fb', 'latitude', 13.205994, ...
++%!                'longitude', -37.276231,
++%!                'friends', struct ('id', {0; 1; 2}, ...
++%!                                   'name', {'Osborn'; 'Mcdowell'; 'Jewel'}));
++%! exp = {[]; 1; Inf; 2531.023; 'hello there'; var};
++%! obs  = jsondecode (json);
++%! assert (isequaln (obs, exp));
++
++%% Array of arrays
++%!testif HAVE_RAPIDJSON
++%! json = ['[["str", Inf, null], [1, 2, null], ["foo", "bar", ["foo", "bar"]],', ...
++%!   '[[[1, 2], [3, 4]], [[5, 6], [7, 8]]],' , ...
++%!   '[', ...
++%!     '{', ...
++%!       '"x_id": "5ee28980fc9ab3",', ...
++%!       '"index": 0,', ...
++%!       '"guid": "b229d1de-f94a",', ...
++%!       '"latitude": -17.124067,', ...
++%!       '"longitude": -61.161831,', ...
++%!       '"friends": [', ...
++%!         '{', ...
++%!           '"id": 0,', ...
++%!           '"name": "Collins"', ...
++%!         '},', ...
++%!         '{', ...
++%!           '"id": 1,', ...
++%!           '"name": "Hays"', ...
++%!         '},', ...
++%!         '{', ...
++%!           '"id": 2,', ...
++%!           '"name": "Griffin"', ...
++%!         '}', ...
++%!       ']', ...
++%!     '},', ...
++%!     '{"numeric array": ["str", 5, null], "nonnumeric array": [1, 2, null]},', ...
++%!     '{', ...
++%!        '"firstName": "John",', ...
++%!        '"lastName": "Smith",', ...
++%!        '"age": 25,', ...
++%!        '"address":', ...
++%!        '{', ...
++%!            '"streetAddress": "21 2nd Street",', ...
++%!            '"city": "New York",', ...
++%!            '"state": "NY"', ...
++%!        '},', ...
++%!        '"phoneNumber":', ...
++%!            '{', ...
++%!              '"type": "home",', ...
++%!              '"number": "212 555-1234"', ...
++%!            '}', ...
++%!    '}]]'];
++%! var1 = struct ('x_id', '5ee28980fc9ab3', 'index', 0, ...
++%!                'guid', 'b229d1de-f94a', 'latitude', -17.124067, ...
++%!                'longitude', -61.161831, ...
++%!                'friends', struct ('id', {0; 1; 2}, ...
++%!                                   'name', {'Collins'; 'Hays'; 'Griffin'}));
++%! var2 = struct ('numericArray', {{'str'; 5; []}}, ...
++%!                'nonnumericArray', {[1; 2; NaN]});
++%! var3 = struct ('firstName', 'John', 'lastName', 'Smith', 'age', 25, ...
++%!                'address', ...
++%!                struct ('streetAddress', '21 2nd Street', ...
++%!                        'city', 'New York', 'state', 'NY'), ...
++%!                'phoneNumber', ...
++%!                struct ('type', 'home', 'number', '212 555-1234'));
++%! exp = {{'str'; Inf; []}; [1; 2; NaN]; {'foo'; 'bar'; {'foo'; 'bar'}};
++%!        cat(3, [1, 3; 5, 7], [2, 4; 6, 8]); {var1; var2 ;var3}};
++%! obs  = jsondecode (json);
++%! assert (isequaln (obs, exp));
++
++%%% Test 7: Check "ReplacementStyle" and "Prefix" options
++
++%!testif HAVE_RAPIDJSON
++%! json = '{"1a": {"1*a": {"1+*/-a": {"1#a": {}}}}}';
++%! exp  = struct ('n1a', ...
++%!                struct ('n1a', struct ('n1a', struct ('n1a', struct ()))));
++%! obs  = jsondecode (json, "ReplacementStyle", "delete", ...
++%!                          "Prefix", "_", "Prefix", "n");
++%! assert (isequal (obs, exp));
++
++%% Check forwarding of "ReplacementStyle" and "Prefix" options inside arrays
++%!testif HAVE_RAPIDJSON
++%! json = [ '[', ...
++%!       '{', ...
++%!         '"i*d": 0,', ...
++%!         '"12name": "Osborn"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"i*d": 1,', ...
++%!         '"12name": "Mcdowell"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"i*d": 2,', ...
++%!         '"12name": "Jewel"', ...
++%!       '}', ...
++%!     ']'];
++%! exp  = struct ('i0x2Ad', {0; 1; 2}, ...
++%!                'm_12name', {'Osborn'; 'Mcdowell'; 'Jewel'});
++%! obs  = jsondecode (json, "ReplacementStyle", "hex", "Prefix", "m_");
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! json = '{"cell*array": [{"1a":1,"b*1":2},{"1a":3,"b/2":4}]}';
++%! exp  = struct ('cell_array', {{struct('x_1a', 1, 'b_1', 2); ...
++%!                                struct('x_1a', 3, 'b_2', 4)}});
++%! obs  = jsondecode (json, "ReplacementStyle", "underscore", "Prefix", "x_");
++%! assert (isequal (obs, exp));
+diff --git a/test/json/jsonencode_BIST.tst b/test/json/jsonencode_BIST.tst
+new file mode 100644
+index 0000000..5055aa4
+--- /dev/null
++++ b/test/json/jsonencode_BIST.tst
+@@ -0,0 +1,658 @@
++%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
++%% Unit tests for jsonencode()
++%%
++%% Code in libinterp/corefcn/jsonencode.cc
++%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
++%% Note: This script is intended to also run under Matlab to verify
++%%       compatibility.  Preserve Matlab-formatting when making changes.
++
++%% Some tests here are just the reverse of tests in jsondecode with
++%% some modifications.
++
++%%% Test 1: Encode logical and numeric scalars, NaN, NA, and Inf
++
++%!testif HAVE_RAPIDJSON
++%! assert (isequal (jsonencode (logical (1)), 'true'));
++%! assert (isequal (jsonencode (logical (0)), 'false'));
++%! assert (isequal (jsonencode (50.025), '50.025'));
++%! assert (isequal (jsonencode (NaN), 'null'));
++%! assert (isequal (jsonencode (NA), 'null'));    % Octave-only test
++%! assert (isequal (jsonencode (Inf), 'null'));
++%! assert (isequal (jsonencode (-Inf), 'null'));
++
++%% Customized encoding of Nan, NA, Inf, -Inf
++%!testif HAVE_RAPIDJSON
++%! assert (isequal (jsonencode (NaN, 'ConvertInfAndNaN', true), 'null'));
++%! % Octave-only test for NA
++%! assert (isequal (jsonencode (NA, 'ConvertInfAndNaN', true), 'null'));
++%! assert (isequal (jsonencode (Inf, 'ConvertInfAndNaN', true), 'null'));
++%! assert (isequal (jsonencode (-Inf, 'ConvertInfAndNaN', true), 'null'));
++
++%!testif HAVE_RAPIDJSON
++%! assert (isequal (jsonencode (NaN, 'ConvertInfAndNaN', false), 'NaN'));
++%! % Octave-only test for NA
++%! assert (isequal (jsonencode (NA, 'ConvertInfAndNaN', false), 'NaN'));
++%! assert (isequal (jsonencode (Inf, 'ConvertInfAndNaN', false), 'Infinity'));
++%! assert (isequal (jsonencode (-Inf, 'ConvertInfAndNaN', false), '-Infinity'));
++
++%%% Test 2: encode character vectors and arrays
++
++%!testif HAVE_RAPIDJSON
++%! assert (isequal (jsonencode (''), '""'));
++%! assert (isequal (jsonencode ('hello there'), '"hello there"'));
++%! assert (isequal (jsonencode (['foo'; 'bar']), '["foo","bar"]'));
++%! assert (isequal (jsonencode (['foo', 'bar'; 'foo', 'bar']), ...
++%!                  '["foobar","foobar"]'));
++
++%% Escape characters inside single-quoted and double-quoted strings
++%!testif HAVE_RAPIDJSON
++%! assert (isequal (jsonencode ('\0\a\b\t\n\v\f\r'), ...
++%!                              '"\\0\\a\\b\\t\\n\\v\\f\\r"'));
++%! % FIXME: Matlab produces a double-escaped string as above.
++%! assert (isequal (jsonencode ("\a\b\t\n\v\f\r"), ...
++%!                              '"\u0007\b\t\n\u000B\f\r"'));
++
++%!testif HAVE_RAPIDJSON
++%! data = [[['foo'; 'bar']; ['foo'; 'bar']], [['foo'; 'bar']; ['foo'; 'bar']]];
++%! exp  = '["foofoo","barbar","foofoo","barbar"]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! data = cat (3, ['a', 'b'; 'c', 'd'], ['e', 'f'; 'g', 'h']);
++%! exp  = '[["ab","ef"],["cd","gh"]]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%% Try different dimensions for the array
++%!testif HAVE_RAPIDJSON
++%! data = cat (3, ['a', 'b'; 'c', 'd'; '1', '2'], ...
++%!                ['e', 'f'; 'g', 'h'; '3', '4']);
++%! exp  = '[["ab","ef"],["cd","gh"],["12","34"]]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%% Try higher dimensions for the array
++%!testif HAVE_RAPIDJSON
++%! charmat1 = cat (3, ['1', '3'; '5', '7'; '9', 'e'; 'f', 'g'], ...
++%!                    ['2', '4'; '6', '8'; 'a', 'b'; 'c', 'd']);
++%! charmat2 = cat (3, ['1', '3'; '5', '7'; '9', 'e'; 'f', 'g'], ...
++%!                    ['2', '4'; '6', '8'; 'a', 'b'; 'c', 'd']);
++%! data = cat (4, charmat1, charmat2);
++%! exp  = [ '[[["13","13"],["24","24"]],[["57","57"],["68","68"]],', ...
++%!          '[["9e","9e"],["ab","ab"]],[["fg","fg"],["cd","cd"]]]' ];
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%% Try different dimensions for an array with one of its dimensions equals one
++%!testif HAVE_RAPIDJSON
++%! data = cat (4, ['a'; 'b'], ['c'; 'd']);
++%! exp  = '[[["a","c"]],[["b","d"]]]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%% High dimension, but still a vector, is reduced to a vector
++%!testif HAVE_RAPIDJSON
++%! data = cat (8, ['a'], ['c']);
++%! exp  = '"ac"';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! data = cat (8, ['a'; 'b'; '1'], ['c'; 'd'; '2']);
++%! exp  = '[[[[[[["a","c"]]]]]],[[[[[["b","d"]]]]]],[[[[[["1","2"]]]]]]]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%%% Test 3: encode numeric and logical arrays (with NaN and Inf)
++
++%% Test simple vectors
++%!testif HAVE_RAPIDJSON
++%! assert (isequal (jsonencode ([]), '[]'));
++%! assert (isequal (jsonencode ([1, 2, 3, 4]), '[1,2,3,4]'));
++%! assert (isequal (jsonencode ([true; false; true]), '[true,false,true]'));
++
++%% Test arrays
++%!testif HAVE_RAPIDJSON
++%! data = [1, NaN; 3, 4];
++%! exp  = '[[1,null],[3,4]]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! data = cat (3, [NaN, 3; 5, Inf], [2, 4; -Inf, 8]);
++%! exp  = '[[[null,2],[3,4]],[[5,null],[null,8]]]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%% Customized encoding of Nan, Inf, -Inf
++%!testif HAVE_RAPIDJSON
++%! data = cat (3, [1, NaN; 5, 7], [2, Inf; 6, -Inf]);
++%! exp  = '[[[1,2],[NaN,Infinity]],[[5,6],[7,-Infinity]]]';
++%! obs  = jsonencode (data, 'ConvertInfAndNaN', false);
++%! assert (isequal (obs, exp));
++
++%% Try different dimensions for the array
++%!testif HAVE_RAPIDJSON
++%! data = cat (3, [1, 3; 5, 7], [2, 4; 6, 8], [-1, NaN; Inf, -Inf]);
++%! exp  = '[[[1,2,-1],[3,4,NaN]],[[5,6,Infinity],[7,8,-Infinity]]]';
++%! obs  = jsonencode (data, 'ConvertInfAndNaN', false);
++%! assert (isequal (obs, exp));
++
++%% Try different dimensions for the array with one of its dimensions equals one
++%!testif HAVE_RAPIDJSON
++%! data = cat (3, [1; 7; 11], [4; 8; 12]);
++%! exp  = '[[[1,4]],[[7,8]],[[11,12]]]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! array1 = cat (3, [5, 7], [2, 4]);
++%! array2 = cat (3, [-1, -3], [-2, -4]);
++%! data = cat (4, array1, array2);
++%! exp  = '[[[[5,-1],[2,-2]],[[7,-3],[4,-4]]]]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! data = cat (4, [1, 3; 5, 7], [-1, -3; -5, -7]);
++%! exp  = '[[[[1,-1]],[[3,-3]]],[[[5,-5]],[[7,-7]]]]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%% High-dimension vector is reduced to just a vector
++%!testif HAVE_RAPIDJSON
++%! data = ones ([1, 1, 1, 1, 1, 6]);
++%! exp  = '[1,1,1,1,1,1]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! data = ones ([1, 2, 2, 2, 2]);
++%! exp  = '[[[[[1,1],[1,1]],[[1,1],[1,1]]],[[[1,1],[1,1]],[[1,1],[1,1]]]]]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! data = ones ([1, 2, 2, 1, 2]);
++%! exp  = '[[[[[1,1]],[[1,1]]],[[[1,1]],[[1,1]]]]]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! data = ones ([1, 2, 1, 2, 1, 2]);
++%! exp  = '[[[[[[1,1]],[[1,1]]]],[[[[1,1]],[[1,1]]]]]]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! data = ones ([1, 1, 2, 1, 2, 1, 2]);
++%! exp  = '[[[[[[[1,1]],[[1,1]]]],[[[[1,1]],[[1,1]]]]]]]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! data = ones ([1, 2, 2, 1, 1, 2]);
++%! exp  = '[[[[[[1,1]]],[[[1,1]]]],[[[[1,1]]],[[[1,1]]]]]]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! data = ones ([1, 2, 1, 3, 1, 1, 1, 2]);
++%! exp  = ['[[[[[[[[1,1]]]],[[[[1,1]]]],[[[[1,1]]]]]],[[[[[[1,1]]]],', ...
++%!         '[[[[1,1]]]],[[[[1,1]]]]]]]]'];
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! data = ones ([1, 1, 1, 1, 2, 1, 1, 1, 2]);
++%! exp  = '[[[[[[[[[1,1]]]],[[[[1,1]]]]]]]]]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! data = ones ([1, 3, 2, 1, 1, 2, 1, 2, 2]);
++%! exp  = ['[[[[[[[[[1,1],[1,1]]],[[[1,1],[1,1]]]]]],[[[[[[1,1],', ...
++%!         '[1,1]]],[[[1,1],[1,1]]]]]]],[[[[[[[1,1],[1,1]]],[[[1,', ...
++%!         '1],[1,1]]]]]],[[[[[[1,1],[1,1]]],[[[1,1],[1,1]]]]]]],', ...
++%!         '[[[[[[[1,1],[1,1]]],[[[1,1],[1,1]]]]]],[[[[[[1,1],[1,', ...
++%!         '1]]],[[[1,1],[1,1]]]]]]]]]'];
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! data = ones ([1, 1, 1, 1, 1, 1, 2, 1, 1, 2, 2, 3, 1, 1, 1, 1, 1, 1, 1, 2]);
++%! exp  =  ['[[[[[[[[[[[[[[[[[[[[1,1]]]]]]]],[[[[[[[[1,1]]]]]]]],', ...
++%!          '[[[[[[[[1,1]]]]]]]]],[[[[[[[[[1,1]]]]]]]],[[[[[[[[1,1]]]]]', ...
++%!          ']]],[[[[[[[[1,1]]]]]]]]]],[[[[[[[[[[1,1]]]]]]]],[[[[[[[[1,1]', ...
++%!          ']]]]]]],[[[[[[[[1,1]]]]]]]]],[[[[[[[[[1,1]]]]]]]],[[[[[[', ...
++%!          '[[1,1]]]]]]]],[[[[[[[[1,1]]]]]]]]]]]]],[[[[[[[[[[[[[1,1]', ...
++%!          ']]]]]]],[[[[[[[[1,1]]]]]]]],[[[[[[[[1,1]]]]]]]]],[[[[[[[[', ...
++%!          '[1,1]]]]]]]],[[[[[[[[1,1]]]]]]]],[[[[[[[[1,1]]]]]]]]]],[[[', ...
++%!          '[[[[[[[1,1]]]]]]]],[[[[[[[[1,1]]]]]]]],[[[[[[[[1,1]]]]]]]]],', ...
++%!          '[[[[[[[[[1,1]]]]]]]],[[[[[[[[1,1]]]]]]]],[[[[[[[[1,1]]', ...
++%!          ']]]]]]]]]]]]]]]]]]'];
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%% Try higher dimensions for the array
++%!testif HAVE_RAPIDJSON
++%! var1 = cat (3, [1, 3; 5, 7; 9, 11; 13, 15], [2, 4; 6, 8; 10, 12; 14, 16]);
++%! var2 = cat (3, [-1, -3; -5, -7; -9, -11; -13, -15], ...
++%!                [-2, -4; -6, -8; -10, -12; -14, -16]);
++%! data = cat (4, var1, var2);
++%! exp  = ['[[[[1,-1],[2,-2]],[[3,-3],[4,-4]]],[[[5,-5],[6,-6]],[[7,-7],', ...
++%!         '[8,-8]]],[[[9,-9],[10,-10]],[[11,-11],[12,-12]]],', ...
++%!         '[[[13,-13],[14,-14]],[[15,-15],[16,-16]]]]'];
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%% Try logical array (tests above were all with numeric data)
++
++%% 2-D logical array
++%!testif HAVE_RAPIDJSON
++%! data = [true, false; true, false; true, false];
++%! exp  = '[[true,false],[true,false],[true,false]]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%% N-D logical array
++%!testif HAVE_RAPIDJSON <*59198>
++%! data = true (2,2,2);
++%! data(1,1,2) = false;
++%! exp  = '[[[true,false],[true,true]],[[true,true],[true,true]]]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%%% Test 4: encode containers.Map
++
++%% KeyType must be char to encode objects of containers.Map
++%!testif HAVE_RAPIDJSON
++%! assert (isequal (jsonencode (containers.Map ('1', [1, 2, 3])), ...
++%!                  '{"1":[1,2,3]}'));
++
++%!testif HAVE_RAPIDJSON
++%! data = containers.Map ({'foo'; 'bar'; 'baz'}, [1, 2, 3]);
++%! exp  = '{"bar":2,"baz":3,"foo":1}';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON
++%! data = containers.Map ({'foo'; 'bar'; 'baz'}, ...
++%!                        {{1, 'hello', NaN}, true, [2, 3, 4]});
++%! exp  = '{"bar":true,"baz":[2,3,4],"foo":[1,"hello",NaN]}';
++%! obs  = jsonencode (data, 'ConvertInfAndNaN', false);
++%! assert (isequal (obs, exp));
++
++%%% Test 5: encode scalar structs
++
++%% Check the encoding of Boolean, Number, and String values inside a struct
++%!testif HAVE_RAPIDJSON
++%! data = struct ('number', 3.14, 'string', 'foobar', 'boolean', false);
++%! exp  = '{"number":3.14,"string":"foobar","boolean":false}';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%% Check the encoding of NaN, NA, Inf, and -Inf values inside a struct
++%!testif HAVE_RAPIDJSON
++%! % Octave-only test because of NA value
++%! data = struct ('numericArray', [7, NaN, NA, Inf, -Inf]);
++%! exp  = '{"numericArray":[7,null,null,null,null]}';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%% Customized encoding of Nan, NA, Inf, -Inf
++%!testif HAVE_RAPIDJSON
++%! data = struct ('numericArray', [7, NaN, NA, Inf, -Inf]);
++%! exp  = '{"numericArray":[7,NaN,NaN,Infinity,-Infinity]}';
++%! obs  = jsonencode (data, 'ConvertInfAndNaN', false);
++%! assert (isequal (obs, exp));
++
++%% Check the encoding of structs inside a struct
++%!testif HAVE_RAPIDJSON
++%! data = struct ('object', struct ('field1', 1, 'field2', 2, 'field3', 3));
++%! exp  = '{"object":{"field1":1,"field2":2,"field3":3}}';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%% Check the encoding of empty structs and empty arrays inside a struct
++%!testif HAVE_RAPIDJSON
++%! data = struct ('a', Inf, 'b', [], 'c', struct ());
++%! exp  = '{"a":null,"b":[],"c":{}}';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%% a big test
++%!testif HAVE_RAPIDJSON
++%! var1 = struct ('para', ['A meta-markup language, used to create ' ...
++%!                         'markup languages such as DocBook.'], ...
++%!                'GlossSeeAlso', {{'GML'; 'XML'}});
++%! var2 = struct ('ID', 'SGML', 'SortAs', 'SGML', ...
++%!                'GlossTerm', 'Standard Generalized Markup Language', ...
++%!                'Acronym', 'SGML', 'Abbrev', 'ISO 8879:1986', ...
++%!                'GlossDef', var1, 'GlossSee', 'markup');
++%! data  = struct ('glossary', ...
++%!                struct ('title', 'example glossary', ...
++%!                        'GlossDiv', struct ('title', 'S', ...
++%!                                            'GlossList', ...
++%!                                            struct ('GlossEntry', var2))));
++%! exp = ['{' , ...
++%!     '"glossary":{', ...
++%!         '"title":"example glossary",', ...
++%! 		'"GlossDiv":{', ...
++%!             '"title":"S",', ...
++%! 			'"GlossList":{', ...
++%!                 '"GlossEntry":{', ...
++%!                     '"ID":"SGML",', ...
++%! 					'"SortAs":"SGML",', ...
++%! 					'"GlossTerm":"Standard Generalized Markup Language",', ...
++%! 					'"Acronym":"SGML",', ...
++%! 					'"Abbrev":"ISO 8879:1986",', ...
++%! 					'"GlossDef":{', ...
++%!                         '"para":"A meta-markup language, ', ...
++%!                         'used to create markup languages such as DocBook.",', ...
++%! 						'"GlossSeeAlso":["GML","XML"]', ...
++%!                     '},', ...
++%! 					'"GlossSee":"markup"', ...
++%!                 '}', ...
++%!             '}', ...
++%!         '}', ...
++%!     '}', ...
++%! '}'];
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%%% Test 6: Encode struct arrays
++
++%!testif HAVE_RAPIDJSON
++%! data = struct ('structarray', struct ('a', {1; 3}, 'b', {2; 4}));
++%! exp  = '{"structarray":[{"a":1,"b":2},{"a":3,"b":4}]}';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%% another big Test
++%!testif HAVE_RAPIDJSON
++%! var1 = struct ('id', {0; 1; 2}, 'name', {'Collins'; 'Hays'; 'Griffin'});
++%! var2 = struct ('id', {0; 1; 2}, 'name', {'Osborn'; 'Mcdowell'; 'Jewel'});
++%! var3 = struct ('id', {0; 1; 2}, 'name', {'Socorro'; 'Darla'; 'Leanne'});
++%! data = struct (...
++%!   'x_id', {'5ee28980fc9ab3'; '5ee28980dd7250'; '5ee289802422ac'}, ...
++%!   'index', {0; 1; 2}, ...
++%!   'guid', {'b229d1de-f94a'; '39cee338-01fb'; '3db8d55a-663e'}, ...
++%!   'latitude', {-17.124067; 13.205994; -35.453456}, ...
++%!   'longitude', {-61.161831; -37.276231; 14.080287}, ...
++%!   'friends', {var1; var2; var3});
++%! exp  = ['[', ...
++%!   '{', ...
++%!     '"x_id":"5ee28980fc9ab3",', ...
++%!     '"index":0,', ...
++%!     '"guid":"b229d1de-f94a",', ...
++%!     '"latitude":-17.124067,', ...
++%!     '"longitude":-61.161831,', ...
++%!     '"friends":[', ...
++%!       '{', ...
++%!         '"id":0,', ...
++%!         '"name":"Collins"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id":1,', ...
++%!         '"name":"Hays"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id":2,', ...
++%!         '"name":"Griffin"', ...
++%!       '}', ...
++%!     ']', ...
++%!   '},', ...
++%!   '{', ...
++%!     '"x_id":"5ee28980dd7250",', ...
++%!     '"index":1,', ...
++%!     '"guid":"39cee338-01fb",', ...
++%!     '"latitude":13.205994,', ...
++%!     '"longitude":-37.276231,', ...
++%!     '"friends":[', ...
++%!       '{', ...
++%!         '"id":0,', ...
++%!         '"name":"Osborn"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id":1,', ...
++%!         '"name":"Mcdowell"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id":2,', ...
++%!         '"name":"Jewel"', ...
++%!       '}', ...
++%!     ']', ...
++%!   '},', ...
++%!   '{', ...
++%!     '"x_id":"5ee289802422ac",', ...
++%!     '"index":2,', ...
++%!     '"guid":"3db8d55a-663e",', ...
++%!     '"latitude":-35.453456,', ...
++%!     '"longitude":14.080287,', ...
++%!     '"friends":[', ...
++%!       '{', ...
++%!         '"id":0,', ...
++%!         '"name":"Socorro"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id":1,', ...
++%!         '"name":"Darla"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id":2,', ...
++%!         '"name":"Leanne"', ...
++%!       '}', ...
++%!     ']', ...
++%!   '}', ...
++%! ']'];
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%%% Test 7: encode cell arrays
++
++%!testif HAVE_RAPIDJSON
++%! assert (isequal (jsonencode ({}), '[]'));
++%! assert (isequal (jsonencode ({5}), '[5]'));
++%! assert (isequal (jsonencode ({'hello there'}), '["hello there"]'));
++
++%% Logical cell arrays
++%!testif HAVE_RAPIDJSON
++%! data = {'true', 'true'; 'false', 'true'};
++%! exp  = '["true","false","true","true"]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%% Cell array of character vectors
++%!testif HAVE_RAPIDJSON
++%! data = {'foo'; 'bar'; {'foo'; 'bar'}};
++%! exp  = '["foo","bar",["foo","bar"]]';
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%% cell array of structs & a big test
++%!testif HAVE_RAPIDJSON
++%! var1 = struct ('x_id', '5ee28980fc9ab3', 'index', 0, ...
++%!                'guid', 'b229d1de-f94a', 'latitude', -17.124067, ...
++%!                'longitude', -61.161831, ...
++%!                'friends', struct ('id', {0; 1; 2}, ...
++%!                                   'name', {'Collins'; 'Hays'; 'Griffin'}));
++%! var2 = struct ('numericArray', {{'str'; 5; []}}, ...
++%!                'nonnumericArray', {[1; 2; NaN]});
++%! var3 = struct ('firstName', 'John', 'lastName', 'Smith', 'age', 25, ...
++%!                'address', ...
++%!                struct ('streetAddress', '21 2nd Street', ...
++%!                        'city', 'New York', 'state', 'NY'), ...
++%!                'phoneNumber', ...
++%!                struct ('type', 'home', 'number', '212 555-1234'));
++%! data = {var1; var2; var3};
++%! exp  = ['[', ...
++%!   '{', ...
++%!     '"x_id":"5ee28980fc9ab3",', ...
++%!     '"index":0,', ...
++%!     '"guid":"b229d1de-f94a",', ...
++%!     '"latitude":-17.124067,', ...
++%!     '"longitude":-61.161831,', ...
++%!     '"friends":[', ...
++%!       '{', ...
++%!         '"id":0,', ...
++%!         '"name":"Collins"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id":1,', ...
++%!         '"name":"Hays"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id":2,', ...
++%!         '"name":"Griffin"', ...
++%!       '}', ...
++%!     ']', ...
++%!   '},', ...
++%!   '{"numericArray":["str",5,[]],"nonnumericArray":[1,2,null]},', ...
++%!   '{', ...
++%!      '"firstName":"John",', ...
++%!      '"lastName":"Smith",', ...
++%!      '"age":25,', ...
++%!      '"address":', ...
++%!      '{', ...
++%!          '"streetAddress":"21 2nd Street",', ...
++%!          '"city":"New York",', ...
++%!          '"state":"NY"', ...
++%!      '},', ...
++%!      '"phoneNumber":', ...
++%!          '{', ...
++%!            '"type":"home",', ...
++%!            '"number":"212 555-1234"', ...
++%!          '}', ...
++%!  '}]'];
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%% cell array of diferrent types & Customized encoding of Nan, Inf, -Inf
++%!testif HAVE_RAPIDJSON
++%! var =  struct ('x_id', '5ee28980dd7250', 'index', 1, ...
++%!                'guid', '39cee338-01fb', 'latitude', 13.205994, ...
++%!                'longitude', -37.276231,
++%!                'friends', struct ('id', {0; 1; 2}, ...
++%!                                   'name', {'Osborn'; 'Mcdowell'; 'Jewel'}));
++%! data = {NaN; true; Inf; 2531.023; 'hello there'; var};
++%! exp  = ['[NaN,true,Infinity,2531.023,"hello there",', ...
++%!   '{', ...
++%!     '"x_id":"5ee28980dd7250",', ...
++%!     '"index":1,', ...
++%!     '"guid":"39cee338-01fb",', ...
++%!     '"latitude":13.205994,', ...
++%!     '"longitude":-37.276231,', ...
++%!     '"friends":[', ...
++%!       '{', ...
++%!         '"id":0,', ...
++%!         '"name":"Osborn"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id":1,', ...
++%!         '"name":"Mcdowell"', ...
++%!       '},', ...
++%!       '{', ...
++%!         '"id":2,', ...
++%!         '"name":"Jewel"', ...
++%!       '}', ...
++%!     ']', ...
++%!   '}]'];
++%! obs  = jsonencode (data, 'ConvertInfAndNaN', false);
++%! assert (isequal (obs, exp));
++
++%% a big example
++%!testif HAVE_RAPIDJSON
++%! var1 = struct ('x_id', '5ee28980fc9ab3', 'index', 0, ...
++%!                'guid', 'b229d1de-f94a', 'latitude', -17.124067, ...
++%!                'longitude', -61.161831, ...
++%!                'friends', struct ('id', {0; 1; 2}, ...
++%!                                   'name', {'Collins'; 'Hays'; 'Griffin'}));
++%! var2 = struct ('numericArray', {{'str'; 5; -Inf}}, ...
++%!                'nonnumericArray', {[1; 2; NaN]});
++%! var3 = struct ('firstName', 'John', 'lastName', 'Smith', 'age', 25, ...
++%!                'address', ...
++%!                struct ('streetAddress', '21 2nd Street', ...
++%!                        'city', 'New York', 'state', 'NY'), ...
++%!                'phoneNumber', ...
++%!                struct ('type', 'home', 'number', '212 555-1234'));
++%! data = {{'str'; Inf; {}}; [1; 2; NaN]; {'foo'; 'bar'; {'foo'; 'bar'}};
++%!        cat(3, [1, 3; 5, 7], [2, 4; 6, 8]); {var1; var2 ;var3}};
++%! exp  = ['[["str",null,[]],[1,2,null],["foo","bar",["foo","bar"]],', ...
++%!   '[[[1,2],[3,4]],[[5,6],[7,8]]],' , ...
++%!   '[', ...
++%!     '{', ...
++%!       '"x_id":"5ee28980fc9ab3",', ...
++%!       '"index":0,', ...
++%!       '"guid":"b229d1de-f94a",', ...
++%!       '"latitude":-17.124067,', ...
++%!       '"longitude":-61.161831,', ...
++%!       '"friends":[', ...
++%!         '{', ...
++%!           '"id":0,', ...
++%!           '"name":"Collins"', ...
++%!         '},', ...
++%!         '{', ...
++%!           '"id":1,', ...
++%!           '"name":"Hays"', ...
++%!         '},', ...
++%!         '{', ...
++%!           '"id":2,', ...
++%!           '"name":"Griffin"', ...
++%!         '}', ...
++%!       ']', ...
++%!     '},', ...
++%!     '{"numericArray":["str",5,null],"nonnumericArray":[1,2,null]},', ...
++%!     '{', ...
++%!        '"firstName":"John",', ...
++%!        '"lastName":"Smith",', ...
++%!        '"age":25,', ...
++%!        '"address":', ...
++%!        '{', ...
++%!            '"streetAddress":"21 2nd Street",', ...
++%!            '"city":"New York",', ...
++%!            '"state":"NY"', ...
++%!        '},', ...
++%!        '"phoneNumber":', ...
++%!            '{', ...
++%!              '"type":"home",', ...
++%!              '"number":"212 555-1234"', ...
++%!            '}', ...
++%!    '}]]'];
++%! obs  = jsonencode (data);
++%! assert (isequal (obs, exp));
++
++%% Just basic tests to ensure option "PrettyPrint" is functional. 
++%!testif HAVE_RAPIDJSON_PRETTYWRITER
++%! data = {'Hello'; 'World!'};
++%! exp  = do_string_escapes ([ '[\n', ...
++%!                             '  "Hello",\n', ...
++%!                             '  "World!"\n', ...
++%!                             ']' ]);
++%! obs  = jsonencode (data, 'PrettyPrint', true);
++%! assert (isequal (obs, exp));
++%!
++%! exp  = '["Hello","World!"]';
++%! obs  = jsonencode (data, 'PrettyPrint', false);
++%! assert (isequal (obs, exp));
++
++%!testif HAVE_RAPIDJSON_PRETTYWRITER
++%! data = [1, 2; 3, 4];
++%! exp  = do_string_escapes ([ ...
++%! '[\n'                       ...
++%! '  [\n'                   ...
++%! '    1,\n'              ...
++%! '    2\n'               ...
++%! '  ],\n'                  ...
++%! '  [\n'                   ...
++%! '    3,\n'              ...
++%! '    4\n'               ...
++%! '  ]\n'                   ...
++%! ']' ]);
++%! obs  = jsonencode (data, 'PrettyPrint', true);
++%! assert (isequal (obs, exp));
++%!
++%! exp  = '[[1,2],[3,4]]';
++%! obs  = jsonencode (data, 'PrettyPrint', false);
++%! assert (isequal (obs, exp));
+diff --git a/test/json/module.mk b/test/json/module.mk
+new file mode 100644
+index 0000000..9025684
+--- /dev/null
++++ b/test/json/module.mk
+@@ -0,0 +1,5 @@
++json_TEST_FILES = \
++  %reldir%/jsondecode_BIST.tst \
++  %reldir%/jsonencode_BIST.tst
++
++TEST_FILES += $(json_TEST_FILES)
+diff --git a/test/module.mk b/test/module.mk
+index 2a44a89..9506d71 100644
+--- a/test/module.mk
++++ b/test/module.mk
+@@ -74,6 +74,7 @@ include %reldir%/classdef-multiple-inheritance/module.mk
+ include %reldir%/classes/module.mk
+ include %reldir%/ctor-vs-method/module.mk
+ include %reldir%/fcn-handle-derived-resolution/module.mk
++include %reldir%/json/module.mk
+ include %reldir%/local-functions/module.mk
+ include %reldir%/nest/module.mk
+ include %reldir%/publish/module.mk
+-- 
+2.27.0
+

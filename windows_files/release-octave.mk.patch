@@ -7,7 +7,7 @@
 -$(PKG)_DEPS     := blas arpack curl epstool fftw fltk $($(PKG)_FONTCONFIG) ghostscript gl2ps glpk gnuplot graphicsmagick hdf5 lapack libsndfile pcre portaudio pstoedit qhull qrupdate qscintilla readline sundials-ida suitesparse texinfo zlib
 +#$(PKG)_DEPS     := blas arpack curl epstool fftw fltk $($(PKG)_FONTCONFIG) ghostscript gl2ps glpk gnuplot graphicsmagick hdf5 lapack libsndfile pcre portaudio pstoedit qhull qrupdate qscintilla readline sundials-ida suitesparse texinfo zlib
 +
-+$(PKG)_DEPS     := blas $($(PKG)_FONTCONFIG) lapack pcre readline texinfo zlib gl2ps ghostscript glpk
++$(PKG)_DEPS     := blas $($(PKG)_FONTCONFIG) lapack pcre readline texinfo zlib gl2ps ghostscript glpk rapidjson
  
  ifeq ($(ENABLE_QT5),yes)
      $(PKG)_DEPS += qt5

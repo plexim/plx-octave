@@ -1,0 +1,12 @@
+diff -r -u instrument-control-0.7.0.orig/inst/@octave_tcpclient/read.m instrument-control-0.7.0.fixed/inst/@octave_tcpclient/read.m
+--- instrument-control-0.7.0.orig/inst/@octave_tcpclient/read.m	2021-02-22 16:52:57.000000000 +0100
++++ instrument-control-0.7.0.fixed/inst/@octave_tcpclient/read.m	2021-05-19 09:02:11.000000000 +0200
+@@ -74,7 +74,7 @@
+   endswitch
+ 
+   if (nargin < 2)
+-    cnt = int32(obj.numbytesavailable/tosize);
++    cnt = int32(obj.NumBytesAvailable/tosize);
+   endif
+ 
+   cnt = cnt*tosize;

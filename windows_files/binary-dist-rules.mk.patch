@@ -26,7 +26,7 @@ diff -r 7f8ff4800eef binary-dist-rules.mk
 +  msys-coreutils msys-libintl msys-libiconv \
 +  msys-libcrypt \
 +  msys-perl \
-+  of-control of-signal
++  of-control of-signal of-instrument-control
  
  define delete-dist-directory
    echo "deleting previous dist directory..."

@@ -1,0 +1,537 @@
+Add documentation for 'jsonencode' and 'jsondecode'.
+
+---
+ Character-Class-Functions.html       |   8 +-
+ Function-Index.html                  |   6 +
+ JSON-data-encoding_002fdecoding.html | 278 +++++++++++++++++++++++++++
+ String-Conversions.html              |   6 +-
+ Strings.html                         |   4 +-
+ XREFjsondecode.html                  |  50 +++++
+ XREFjsonencode.html                  |  50 +++++
+ index.html                           |   5 +-
+ 8 files changed, 398 insertions(+), 9 deletions(-)
+ create mode 100644 JSON-data-encoding_002fdecoding.html
+ create mode 100644 XREFjsondecode.html
+ create mode 100644 XREFjsonencode.html
+
+diff --git a/Character-Class-Functions.html b/Character-Class-Functions.html
+index a0f9370..93838be 100644
+--- a/Character-Class-Functions.html
++++ b/Character-Class-Functions.html
+@@ -15,7 +15,7 @@
+ <link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
+ <link href="Strings.html#Strings" rel="up" title="Strings">
+ <link href="Data-Containers.html#Data-Containers" rel="next" title="Data Containers">
+-<link href="String-Conversions.html#String-Conversions" rel="prev" title="String Conversions">
++<link href="JSON-data-encoding_002fdecoding.html#JSON-data-encoding_002fdecoding" rel="prev" title="JSON data encoding/decoding">
+ <style type="text/css">
+ <!--
+ a.summary-letter {text-decoration: none}
+@@ -52,11 +52,11 @@ ul.no-bullet {list-style: none}
+ <a name="Character-Class-Functions"></a>
+ <div class="header">
+ <p>
+-Previous: <a href="String-Conversions.html#String-Conversions" accesskey="p" rel="prev">String Conversions</a>, Up: <a href="Strings.html#Strings" accesskey="u" rel="up">Strings</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Concept-Index.html#Concept-Index" title="Index" rel="index">Index</a>]</p>
++Previous: <a href="JSON-data-encoding_002fdecoding.html#JSON-data-encoding_002fdecoding" accesskey="p" rel="prev">JSON data encoding/decoding</a>, Up: <a href="Strings.html#Strings" accesskey="u" rel="up">Strings</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Concept-Index.html#Concept-Index" title="Index" rel="index">Index</a>]</p>
+ </div>
+ <hr>
+ <a name="Character-Class-Functions-1"></a>
+-<h3 class="section">5.7 Character Class Functions</h3>
++<h3 class="section">5.8 Character Class Functions</h3>
+ 
+ <p>Octave also provides the following character class test functions
+ patterned after the functions in the standard C library.  They all
+@@ -277,7 +277,7 @@ letter or digit).
+ <hr>
+ <div class="header">
+ <p>
+-Previous: <a href="String-Conversions.html#String-Conversions" accesskey="p" rel="prev">String Conversions</a>, Up: <a href="Strings.html#Strings" accesskey="u" rel="up">Strings</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Concept-Index.html#Concept-Index" title="Index" rel="index">Index</a>]</p>
++Previous: <a href="JSON-data-encoding_002fdecoding.html#JSON-data-encoding_002fdecoding" accesskey="p" rel="prev">JSON data encoding/decoding</a>, Up: <a href="Strings.html#Strings" accesskey="u" rel="up">Strings</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Concept-Index.html#Concept-Index" title="Index" rel="index">Index</a>]</p>
+ </div>
+ 
+ 
+diff --git a/Function-Index.html b/Function-Index.html
+index 35186f0..445325a 100644
+--- a/Function-Index.html
++++ b/Function-Index.html
+@@ -2042,6 +2042,12 @@ Next: <a href="Operator-Index.html#Operator-Index" accesskey="n" rel="next">Oper
+ <tr><td></td><td valign="top"><a href="JIT-Compiler.html#index-jit_005fstartcnt"><code>jit_startcnt</code></a>:</td><td>&nbsp;</td><td valign="top"><a href="JIT-Compiler.html#JIT-Compiler">JIT Compiler</a></td></tr>
+ <tr><td></td><td valign="top"><a href="JIT-Compiler.html#index-jit_005fstartcnt-1"><code>jit_startcnt</code></a>:</td><td>&nbsp;</td><td valign="top"><a href="JIT-Compiler.html#JIT-Compiler">JIT Compiler</a></td></tr>
+ <tr><td></td><td valign="top"><a href="JIT-Compiler.html#index-jit_005fstartcnt-2"><code>jit_startcnt</code></a>:</td><td>&nbsp;</td><td valign="top"><a href="JIT-Compiler.html#JIT-Compiler">JIT Compiler</a></td></tr>
++<tr><td></td><td valign="top"><a href="JSON-data-encoding_002fdecoding.html#index-jsondecode"><code>jsondecode</code></a>:</td><td>&nbsp;</td><td valign="top"><a href="JSON-data-encoding_002fdecoding.html">JSON data encoding/decoding</a></td></tr>
++<tr><td></td><td valign="top"><a href="JSON-data-encoding_002fdecoding.html#index-jsondecode-1"><code>jsondecode</code></a>:</td><td>&nbsp;</td><td valign="top"><a href="JSON-data-encoding_002fdecoding.html">JSON data encoding/decoding</a></td></tr>
++<tr><td></td><td valign="top"><a href="JSON-data-encoding_002fdecoding.html#index-jsondecode-2"><code>jsondecode</code></a>:</td><td>&nbsp;</td><td valign="top"><a href="JSON-data-encoding_002fdecoding.html">JSON data encoding/decoding</a></td></tr>
++<tr><td></td><td valign="top"><a href="JSON-data-encoding_002fdecoding.html#index-jsonencode"><code>jsonencode</code></a>:</td><td>&nbsp;</td><td valign="top"><a href="JSON-data-encoding_002fdecoding.html">JSON data encoding/decoding</a></td></tr>
++<tr><td></td><td valign="top"><a href="JSON-data-encoding_002fdecoding.html#index-jsonencode-1"><code>jsonencode</code></a>:</td><td>&nbsp;</td><td valign="top"><a href="JSON-data-encoding_002fdecoding.html">JSON data encoding/decoding</a></td></tr>
++<tr><td></td><td valign="top"><a href="JSON-data-encoding_002fdecoding.html#index-jsonencode-2"><code>jsonencode</code></a>:</td><td>&nbsp;</td><td valign="top"><a href="JSON-data-encoding_002fdecoding.html">JSON data encoding/decoding</a></td></tr>
+ <tr><td colspan="4"> <hr></td></tr>
+ <tr><th><a name="Function-Index_fn_letter-K">K</a></th><td></td><td></td></tr>
+ <tr><td></td><td valign="top"><a href="Terminal-Input.html#index-kbhit"><code>kbhit</code></a>:</td><td>&nbsp;</td><td valign="top"><a href="Terminal-Input.html#Terminal-Input">Terminal Input</a></td></tr>
+diff --git a/JSON-data-encoding_002fdecoding.html b/JSON-data-encoding_002fdecoding.html
+new file mode 100644
+index 0000000..6357d53
+--- /dev/null
++++ b/JSON-data-encoding_002fdecoding.html
+@@ -0,0 +1,278 @@
++<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
++<html>
++<!-- Created by GNU Texinfo 6.7, http://www.gnu.org/software/texinfo/ -->
++<head>
++<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
++<title>JSON data encoding/decoding (GNU Octave (version 4.4.1))</title>
++
++<meta name="description" content="JSON data encoding/decoding (GNU Octave (version 4.4.1))">
++<meta name="keywords" content="JSON data encoding/decoding (GNU Octave (version 4.4.1))">
++<meta name="resource-type" content="document">
++<meta name="distribution" content="global">
++<meta name="Generator" content="makeinfo">
++<link href="index.html" rel="start" title="Top">
++<link href="Concept-Index.html#Concept-Index" rel="index" title="Concept Index">
++<link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
++<link href="Strings.html#Strings" rel="up" title="Strings">
++<link href="Character-Class-Functions.html#Character-Class-Functions" rel="next" title="Character Class Functions">
++<link href="String-Conversions.html#String-Conversions" rel="prev" title="String Conversions">
++<style type="text/css">
++<!--
++a.summary-letter {text-decoration: none}
++blockquote.indentedblock {margin-right: 0em}
++blockquote.smallindentedblock {margin-right: 0em; font-size: smaller}
++blockquote.smallquotation {font-size: smaller}
++div.display {margin-left: 3.2em}
++div.example {margin-left: 3.2em}
++div.lisp {margin-left: 3.2em}
++div.smalldisplay {margin-left: 3.2em}
++div.smallexample {margin-left: 3.2em}
++div.smalllisp {margin-left: 3.2em}
++kbd {font-style: oblique}
++pre.display {font-family: inherit}
++pre.format {font-family: inherit}
++pre.menu-comment {font-family: serif}
++pre.menu-preformatted {font-family: serif}
++pre.smalldisplay {font-family: inherit; font-size: smaller}
++pre.smallexample {font-size: smaller}
++pre.smallformat {font-family: inherit; font-size: smaller}
++pre.smalllisp {font-size: smaller}
++span.nolinebreak {white-space: nowrap}
++span.roman {font-family: initial; font-weight: normal}
++span.sansserif {font-family: sans-serif; font-weight: normal}
++ul.no-bullet {list-style: none}
++-->
++</style>
++<link rel="stylesheet" type="text/css" href="octave.css">
++
++
++</head>
++
++<body lang="en">
++<span id="JSON-data-encoding_002fdecoding"></span><div class="header">
++<p>
++Next: <a href="Character-Class-Functions.html#Character-Class-Functions" accesskey="n" rel="next">Character Class Functions</a>, Previous: <a href="String-Conversions.html#String-Conversions" accesskey="p" rel="prev">String Conversions</a>, Up: <a href="Strings.html#Strings" accesskey="u" rel="up">Strings</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Concept-Index.html#Concept-Index" title="Index" rel="index">Index</a>]</p>
++</div>
++<hr>
++<span id="JSON-data-encoding_002fdecoding-1"></span><h3 class="section">5.7 JSON data encoding/decoding</h3>
++
++<p>JavaScript Object Notation, in short JSON, is a very common human readable
++and structured data format.  GNU Octave supports encoding and decoding this
++format with the following two functions.
++</p>
++<span id="XREFjsonencode"></span><dl>
++<dt id="index-jsonencode"><em><var>JSON_txt</var> =</em> <strong>jsonencode</strong> <em>(<var>object</var>)</em></dt>
++<dt id="index-jsonencode-1"><em><var>JSON_txt</var> =</em> <strong>jsonencode</strong> <em>(&hellip;, &quot;ConvertInfAndNaN&quot;, <var>TF</var>)</em></dt>
++<dt id="index-jsonencode-2"><em><var>JSON_txt</var> =</em> <strong>jsonencode</strong> <em>(&hellip;, &quot;PrettyPrint&quot;, <var>TF</var>)</em></dt>
++<dd>
++<p>Encode Octave data types into JSON text.
++</p>
++<p>The input <var>object</var> is an Octave variable to encode.
++</p>
++<p>The output <var>JSON_txt</var> is the JSON text that contains the result of encoding
++<var>object</var>.
++</p>
++<p>If the value of the option <code>&quot;ConvertInfAndNaN&quot;</code> is true then <code>NaN</code>,
++<code>NA</code>, <code>-Inf</code>, and <code>Inf</code> values will be converted to
++<code>&quot;null&quot;</code> in the output.  If it is false then they will remain as their
++original values.  The default value for this option is true.
++</p>
++<p>If the value of the option <code>&quot;PrettyPrint&quot;</code> is true, the output text will
++have indentations and line feeds.  If it is false, the output will be condensed
++and written without whitespace.  The default value for this option is false.
++</p>
++<p>Programming Notes:
++</p>
++<ul>
++<li> Complex numbers are not supported.
++
++</li><li> classdef objects are first converted to structs and then encoded.
++
++</li><li> To preserve escape characters (e.g., <code>&quot;\n&quot;</code>), use
++single-quoted strings.
++
++</li><li> Every character after the null character (<code>&quot;\0&quot;</code>) in a
++double-quoted string will be dropped during encoding.
++
++</li><li> Encoding and decoding an array is not guaranteed to preserve the dimensions
++of the array.  In particular, row vectors will be reshaped to column vectors.
++
++</li><li> Encoding and decoding is not guaranteed to preserve the Octave data type
++because JSON supports fewer data types than Octave.  For example, if you
++encode an <code>int8</code> and then decode it, you will get a <code>double</code>.
++</li></ul>
++
++<p>This table shows the conversions from Octave data types to JSON data types:
++</p>
++<table>
++<thead><tr><th width="50%">Octave data type</th><th width="50%">JSON data type</th></tr></thead>
++<tr><td width="50%">logical scalar</td><td width="50%">Boolean</td></tr>
++<tr><td width="50%">logical vector</td><td width="50%">Array of Boolean, reshaped to row vector</td></tr>
++<tr><td width="50%">logical array</td><td width="50%">nested Array of Boolean</td></tr>
++<tr><td width="50%">numeric scalar</td><td width="50%">Number</td></tr>
++<tr><td width="50%">numeric vector</td><td width="50%">Array of Number, reshaped to row vector</td></tr>
++<tr><td width="50%">numeric array</td><td width="50%">nested Array of Number</td></tr>
++<tr><td width="50%"><code>NaN</code>, <code>NA</code>, <code>Inf</code>, <code>-Inf</code><br>
++when <code>&quot;ConvertInfAndNaN&quot; = true</code></td><td width="50%"><code>&quot;null&quot;</code></td></tr>
++<tr><td width="50%"><code>NaN</code>, <code>NA</code>, <code>Inf</code>, <code>-Inf</code><br>
++when <code>&quot;ConvertInfAndNaN&quot; = false</code></td><td width="50%"><code>&quot;NaN&quot;</code>, <code>&quot;NaN&quot;</code>,
++<code>&quot;Infinity&quot;</code>, <code>&quot;-Infinity&quot;</code></td></tr>
++<tr><td width="50%">empty array</td><td width="50%"><code>&quot;[]&quot;</code></td></tr>
++<tr><td width="50%">character vector</td><td width="50%">String</td></tr>
++<tr><td width="50%">character array</td><td width="50%">Array of String</td></tr>
++<tr><td width="50%">empty character array</td><td width="50%"><code>&quot;&quot;</code></td></tr>
++<tr><td width="50%">cell scalar</td><td width="50%">Array</td></tr>
++<tr><td width="50%">cell vector</td><td width="50%">Array, reshaped to row vector</td></tr>
++<tr><td width="50%">cell array</td><td width="50%">Array, flattened to row vector</td></tr>
++<tr><td width="50%">struct scalar</td><td width="50%">Object</td></tr>
++<tr><td width="50%">struct vector</td><td width="50%">Array of Object, reshaped to row vector</td></tr>
++<tr><td width="50%">struct array</td><td width="50%">nested Array of Object</td></tr>
++<tr><td width="50%">classdef object</td><td width="50%">Object</td></tr>
++</table>
++
++<p>Examples:
++</p>
++<div class="example">
++<pre class="example">jsonencode ([1, NaN; 3, 4])
++&rArr; [[1,null],[3,4]]
++</pre><pre class="example">jsonencode ([1, NaN; 3, 4], &quot;ConvertInfAndNaN&quot;, false)
++&rArr; [[1,NaN],[3,4]]
++</pre><pre class="example">## Escape characters inside a single-quoted string
++jsonencode ('\0\a\b\t\n\v\f\r')
++&rArr; &quot;\\0\\a\\b\\t\\n\\v\\f\\r&quot;
++</pre><pre class="example">## Escape characters inside a double-quoted string
++jsonencode (&quot;\a\b\t\n\v\f\r&quot;)
++&rArr; &quot;\u0007\b\t\n\u000B\f\r&quot;
++</pre><pre class="example">jsonencode ([true; false], &quot;PrettyPrint&quot;, true)
++&rArr; ans = [
++     true,
++     false
++   ]
++</pre><pre class="example">jsonencode (['foo', 'bar'; 'foo', 'bar'])
++&rArr; [&quot;foobar&quot;,&quot;foobar&quot;]
++</pre><pre class="example">jsonencode (struct ('a', Inf, 'b', [], 'c', struct ()))
++&rArr; {&quot;a&quot;:null,&quot;b&quot;:[],&quot;c&quot;:{}}
++</pre><pre class="example">jsonencode (struct ('structarray', struct ('a', {1; 3}, 'b', {2; 4})))
++&rArr; {&quot;structarray&quot;:[{&quot;a&quot;:1,&quot;b&quot;:2},{&quot;a&quot;:3,&quot;b&quot;:4}]}
++</pre><pre class="example">jsonencode ({'foo'; 'bar'; {'foo'; 'bar'}})
++&rArr; [&quot;foo&quot;,&quot;bar&quot;,[&quot;foo&quot;,&quot;bar&quot;]]
++</pre><pre class="example">jsonencode (containers.Map({'foo'; 'bar'; 'baz'}, [1, 2, 3]))
++&rArr; {&quot;bar&quot;:2,&quot;baz&quot;:3,&quot;foo&quot;:1}
++</pre></div>
++
++
++<p><strong>See also:</strong> <a href="#XREFjsondecode">jsondecode</a>.
++</p></dd></dl>
++
++
++<span id="XREFjsondecode"></span><dl>
++<dt id="index-jsondecode"><em><var>object</var> =</em> <strong>jsondecode</strong> <em>(<var>JSON_txt</var>)</em></dt>
++<dt id="index-jsondecode-1"><em><var>object</var> =</em> <strong>jsondecode</strong> <em>(&hellip;, &quot;ReplacementStyle&quot;, <var>rs</var>)</em></dt>
++<dt id="index-jsondecode-2"><em><var>object</var> =</em> <strong>jsondecode</strong> <em>(&hellip;, &quot;Prefix&quot;, <var>pfx</var>)</em></dt>
++<dd>
++<p>Decode text that is formatted in JSON.
++</p>
++<p>The input <var>JSON_txt</var> is a string that contains JSON text.
++</p>
++<p>The output <var>object</var> is an Octave object that contains the result of
++decoding <var>JSON_txt</var>.
++</p>
++<p>A valid variable name is a sequence of letters, digits, and underscores that
++does not begin with a digit.
++</p>
++<p>The <code>&quot;ReplacementStyle&quot;</code> option specifies how invalid characters
++are handled.  Acceptable values are
++</p>
++<dl compact="compact">
++<dt><code>&quot;underscore&quot;</code> (default)</dt>
++<dd><p>Replace all invalid characters with an underscore (<code>&quot;_&quot;</code>).
++</p>
++</dd>
++<dt><code>&quot;delete&quot;</code></dt>
++<dd><p>Remove any invalid character.
++</p>
++</dd>
++<dt><code>&quot;hex&quot;</code></dt>
++<dd><p>Replace all invalid characters with their hexadecimal representation.
++</p></dd>
++</dl>
++
++<p>Whitespace characters are always removed <strong>prior</strong> to the application
++of the <code>&quot;ReplacementStyle&quot;</code>.  Lowercase letters following a whitespace
++will be changed to uppercase.
++</p>
++<p>The <code>&quot;Prefix&quot;</code> option specifies the string <var>pfx</var> to add as a
++prefix to the input if it begins with a digit.  <var>pfx</var> must be a valid
++variable name itself.  The default prefix is <code>&quot;x&quot;</code>.
++</p>
++<p>NOTE: Decoding and encoding JSON text is not guaranteed to reproduce the
++original text as some names may be changed to create a valid name.
++</p>
++<p>This table shows the conversions from JSON data types to Octave data types:
++</p>
++<table>
++<thead><tr><th width="50%">JSON data type</th><th width="50%">Octave data type</th></tr></thead>
++<tr><td width="50%">Boolean</td><td width="50%">scalar logical</td></tr>
++<tr><td width="50%">Number</td><td width="50%">scalar double</td></tr>
++<tr><td width="50%">String</td><td width="50%">vector of characters</td></tr>
++<tr><td width="50%">Object</td><td width="50%">scalar struct (field names of the struct may be different from the keys of the JSON object in order to create a valid name)</td></tr>
++<tr><td width="50%">null, inside a numeric array</td><td width="50%"><code>NaN</code></td></tr>
++<tr><td width="50%">null, inside a non-numeric array</td><td width="50%">empty double array <code>[]</code></td></tr>
++<tr><td width="50%">Array, of different data types</td><td width="50%">cell array</td></tr>
++<tr><td width="50%">Array, of Booleans</td><td width="50%">logical array</td></tr>
++<tr><td width="50%">Array, of Numbers</td><td width="50%">double array</td></tr>
++<tr><td width="50%">Array, of Strings</td><td width="50%">cell array of character vectors (<code>cellstr</code>)</td></tr>
++<tr><td width="50%">Array of Objects, same field names</td><td width="50%">struct array</td></tr>
++<tr><td width="50%">Array of Objects, different field names</td><td width="50%">cell array of scalar structs</td></tr>
++</table>
++
++<p>Examples:
++</p>
++<div class="example">
++<pre class="example">jsondecode ('[1, 2, null, 3]')
++    &rArr; ans =
++
++      1
++      2
++    NaN
++      3
++</pre><pre class="example">jsondecode ('[&quot;foo&quot;, &quot;bar&quot;, [&quot;foo&quot;, &quot;bar&quot;]]')
++    &rArr; ans =
++       {
++         [1,1] = foo
++         [2,1] = bar
++         [3,1] =
++         {
++           [1,1] = foo
++           [2,1] = bar
++         }
++
++       }
++</pre><pre class="example">jsondecode ('{&quot;nu#m#ber&quot;: 7, &quot;s#tr#ing&quot;: &quot;hi&quot;}', ...
++            'ReplacementStyle', 'delete')
++    &rArr; scalar structure containing the fields:
++
++         number = 7
++         string = hi
++</pre><pre class="example">jsondecode ('{&quot;1&quot;: &quot;one&quot;, &quot;2&quot;: &quot;two&quot;}', 'Prefix', 'm_')
++    &rArr; scalar structure containing the fields:
++
++         m_1 = one
++         m_2 = two
++</pre></div>
++
++
++<p><strong>See also:</strong> <a href="#XREFjsonencode">jsonencode</a>.
++</p></dd></dl>
++
++
++<hr>
++<div class="header">
++<p>
++Next: <a href="Character-Class-Functions.html#Character-Class-Functions" accesskey="n" rel="next">Character Class Functions</a>, Previous: <a href="String-Conversions.html#String-Conversions" accesskey="p" rel="prev">String Conversions</a>, Up: <a href="Strings.html#Strings" accesskey="u" rel="up">Strings</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Concept-Index.html#Concept-Index" title="Index" rel="index">Index</a>]</p>
++</div>
++
++
++
++</body>
++</html>
+diff --git a/String-Conversions.html b/String-Conversions.html
+index 28fdfed..e7bfb9d 100644
+--- a/String-Conversions.html
++++ b/String-Conversions.html
+@@ -14,7 +14,7 @@
+ <link href="Concept-Index.html#Concept-Index" rel="index" title="Concept Index">
+ <link href="index.html#SEC_Contents" rel="contents" title="Table of Contents">
+ <link href="Strings.html#Strings" rel="up" title="Strings">
+-<link href="Character-Class-Functions.html#Character-Class-Functions" rel="next" title="Character Class Functions">
++<link href="JSON-data-encoding_002fdecoding.html#JSON-data-encoding_002fdecoding" rel="next" title="JSON data encoding/decoding">
+ <link href="Manipulating-Strings.html#Manipulating-Strings" rel="prev" title="Manipulating Strings">
+ <style type="text/css">
+ <!--
+@@ -52,7 +52,7 @@ ul.no-bullet {list-style: none}
+ <a name="String-Conversions"></a>
+ <div class="header">
+ <p>
+-Next: <a href="Character-Class-Functions.html#Character-Class-Functions" accesskey="n" rel="next">Character Class Functions</a>, Previous: <a href="Manipulating-Strings.html#Manipulating-Strings" accesskey="p" rel="prev">Manipulating Strings</a>, Up: <a href="Strings.html#Strings" accesskey="u" rel="up">Strings</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Concept-Index.html#Concept-Index" title="Index" rel="index">Index</a>]</p>
++Next: <a href="JSON-data-encoding_002fdecoding.html#JSON-data-encoding_002fdecoding" accesskey="n" rel="next">JSON data encoding/decoding</a>, Previous: <a href="Manipulating-Strings.html#Manipulating-Strings" accesskey="p" rel="prev">Manipulating Strings</a>, Up: <a href="Strings.html#Strings" accesskey="u" rel="up">Strings</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Concept-Index.html#Concept-Index" title="Index" rel="index">Index</a>]</p>
+ </div>
+ <hr>
+ <a name="String-Conversions-1"></a>
+@@ -534,7 +534,7 @@ ans = \a
+ <hr>
+ <div class="header">
+ <p>
+-Next: <a href="Character-Class-Functions.html#Character-Class-Functions" accesskey="n" rel="next">Character Class Functions</a>, Previous: <a href="Manipulating-Strings.html#Manipulating-Strings" accesskey="p" rel="prev">Manipulating Strings</a>, Up: <a href="Strings.html#Strings" accesskey="u" rel="up">Strings</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Concept-Index.html#Concept-Index" title="Index" rel="index">Index</a>]</p>
++Next: <a href="JSON-data-encoding_002fdecoding.html#JSON-data-encoding_002fdecoding" accesskey="n" rel="next">JSON data encoding/decoding</a>, Previous: <a href="Manipulating-Strings.html#Manipulating-Strings" accesskey="p" rel="prev">Manipulating Strings</a>, Up: <a href="Strings.html#Strings" accesskey="u" rel="up">Strings</a> &nbsp; [<a href="index.html#SEC_Contents" title="Table of contents" rel="contents">Contents</a>][<a href="Concept-Index.html#Concept-Index" title="Index" rel="index">Index</a>]</p>
+ </div>
+ 
+ 
+diff --git a/Strings.html b/Strings.html
+index e3739a4..cd3cd1b 100644
+--- a/Strings.html
++++ b/Strings.html
+@@ -100,7 +100,9 @@ example, the expression
+ </td></tr>
+ <tr><td align="left" valign="top">&bull; <a href="String-Conversions.html#String-Conversions" accesskey="6">String Conversions</a>:</td><td>&nbsp;&nbsp;</td><td align="left" valign="top">
+ </td></tr>
+-<tr><td align="left" valign="top">&bull; <a href="Character-Class-Functions.html#Character-Class-Functions" accesskey="7">Character Class Functions</a>:</td><td>&nbsp;&nbsp;</td><td align="left" valign="top">
++<tr><td align="left" valign="top">&bull; <a href="JSON-data-encoding_002fdecoding.html#JSON-data-encoding_002fdecoding" accesskey="7">JSON data encoding/decoding</a>:</td><td>&nbsp;&nbsp;</td><td align="left" valign="top">
++</td></tr>
++<tr><td align="left" valign="top">&bull; <a href="Character-Class-Functions.html#Character-Class-Functions" accesskey="8">Character Class Functions</a>:</td><td>&nbsp;&nbsp;</td><td align="left" valign="top">
+ </td></tr>
+ </table>
+ 
+diff --git a/XREFjsondecode.html b/XREFjsondecode.html
+new file mode 100644
+index 0000000..96ad614
+--- /dev/null
++++ b/XREFjsondecode.html
+@@ -0,0 +1,50 @@
++<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
++<html>
++<!-- Created by GNU Texinfo 6.7, http://www.gnu.org/software/texinfo/ -->
++<!-- This file redirects to the location of a node or anchor -->
++<head>
++<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
++<title>XREFjsondecode (GNU Octave (version 4.4.1))</title>
++
++<meta name="description" content="XREFjsondecode (GNU Octave (version 4.4.1))">
++<meta name="keywords" content="XREFjsondecode (GNU Octave (version 4.4.1))">
++<meta name="resource-type" content="document">
++<meta name="distribution" content="global">
++<meta name="Generator" content="makeinfo">
++<style type="text/css">
++<!--
++a.summary-letter {text-decoration: none}
++blockquote.indentedblock {margin-right: 0em}
++blockquote.smallindentedblock {margin-right: 0em; font-size: smaller}
++blockquote.smallquotation {font-size: smaller}
++div.display {margin-left: 3.2em}
++div.example {margin-left: 3.2em}
++div.lisp {margin-left: 3.2em}
++div.smalldisplay {margin-left: 3.2em}
++div.smallexample {margin-left: 3.2em}
++div.smalllisp {margin-left: 3.2em}
++kbd {font-style: oblique}
++pre.display {font-family: inherit}
++pre.format {font-family: inherit}
++pre.menu-comment {font-family: serif}
++pre.menu-preformatted {font-family: serif}
++pre.smalldisplay {font-family: inherit; font-size: smaller}
++pre.smallexample {font-size: smaller}
++pre.smallformat {font-family: inherit; font-size: smaller}
++pre.smalllisp {font-size: smaller}
++span.nolinebreak {white-space: nowrap}
++span.roman {font-family: initial; font-weight: normal}
++span.sansserif {font-family: sans-serif; font-weight: normal}
++ul.no-bullet {list-style: none}
++-->
++</style>
++<link rel="stylesheet" type="text/css" href="octave.css">
++<a href="XREFjsondecode.html">XREFjsondecode (GNU Octave (version 4.4.1))</a>
++<meta http-equiv="Refresh" content="0; url=JSON-data-encoding_002fdecoding.html#XREFjsondecode">
++
++</head>
++
++<body lang="en">
++
++<p>The node you are looking for is at <a href="JSON-data-encoding_002fdecoding.html#XREFjsondecode">XREFjsondecode</a>.</p>
++</body>
+diff --git a/XREFjsonencode.html b/XREFjsonencode.html
+new file mode 100644
+index 0000000..9bc580a
+--- /dev/null
++++ b/XREFjsonencode.html
+@@ -0,0 +1,50 @@
++<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
++<html>
++<!-- Created by GNU Texinfo 6.7, http://www.gnu.org/software/texinfo/ -->
++<!-- This file redirects to the location of a node or anchor -->
++<head>
++<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
++<title>XREFjsonencode (GNU Octave (version 4.4.1))</title>
++
++<meta name="description" content="XREFjsonencode (GNU Octave (version 4.4.1))">
++<meta name="keywords" content="XREFjsonencode (GNU Octave (version 4.4.1))">
++<meta name="resource-type" content="document">
++<meta name="distribution" content="global">
++<meta name="Generator" content="makeinfo">
++<style type="text/css">
++<!--
++a.summary-letter {text-decoration: none}
++blockquote.indentedblock {margin-right: 0em}
++blockquote.smallindentedblock {margin-right: 0em; font-size: smaller}
++blockquote.smallquotation {font-size: smaller}
++div.display {margin-left: 3.2em}
++div.example {margin-left: 3.2em}
++div.lisp {margin-left: 3.2em}
++div.smalldisplay {margin-left: 3.2em}
++div.smallexample {margin-left: 3.2em}
++div.smalllisp {margin-left: 3.2em}
++kbd {font-style: oblique}
++pre.display {font-family: inherit}
++pre.format {font-family: inherit}
++pre.menu-comment {font-family: serif}
++pre.menu-preformatted {font-family: serif}
++pre.smalldisplay {font-family: inherit; font-size: smaller}
++pre.smallexample {font-size: smaller}
++pre.smallformat {font-family: inherit; font-size: smaller}
++pre.smalllisp {font-size: smaller}
++span.nolinebreak {white-space: nowrap}
++span.roman {font-family: initial; font-weight: normal}
++span.sansserif {font-family: sans-serif; font-weight: normal}
++ul.no-bullet {list-style: none}
++-->
++</style>
++<link rel="stylesheet" type="text/css" href="octave.css">
++<a href="XREFjsonencode.html">XREFjsonencode (GNU Octave (version 4.4.1))</a>
++<meta http-equiv="Refresh" content="0; url=JSON-data-encoding_002fdecoding.html#XREFjsonencode">
++
++</head>
++
++<body lang="en">
++
++<p>The node you are looking for is at <a href="JSON-data-encoding_002fdecoding.html#XREFjsonencode">XREFjsonencode</a>.</p>
++</body>
+diff --git a/index.html b/index.html
+index 7218ded..0e22b15 100644
+--- a/index.html
++++ b/index.html
+@@ -198,7 +198,8 @@ modified versions.
+     <li><a name="toc-Comparing-Strings-1" href="Comparing-Strings.html#Comparing-Strings">5.4 Comparing Strings</a></li>
+     <li><a name="toc-Manipulating-Strings-1" href="Manipulating-Strings.html#Manipulating-Strings">5.5 Manipulating Strings</a></li>
+     <li><a name="toc-String-Conversions-1" href="String-Conversions.html#String-Conversions">5.6 String Conversions</a></li>
+-    <li><a name="toc-Character-Class-Functions-1" href="Character-Class-Functions.html#Character-Class-Functions">5.7 Character Class Functions</a></li>
++    <li><a id="toc-JSON-data-encoding_002fdecoding-1" href="JSON-data-encoding_002fdecoding.html#JSON-data-encoding_002fdecoding">5.7 JSON data encoding/decoding</a></li>
++    <li><a name="toc-Character-Class-Functions-1" href="Character-Class-Functions.html#Character-Class-Functions">5.8 Character Class Functions</a></li>
+   </ul></li>
+   <li><a name="toc-Data-Containers-1" href="Data-Containers.html#Data-Containers">6 Data Containers</a>
+   <ul class="no-bullet">
+@@ -1085,6 +1086,8 @@ Strings
+ </td></tr>
+ <tr><td align="left" valign="top">&bull; <a href="String-Conversions.html#String-Conversions">String Conversions</a>:</td><td>&nbsp;&nbsp;</td><td align="left" valign="top">
+ </td></tr>
++<tr><td align="left" valign="top">&bull; <a href="JSON-data-encoding_002fdecoding.html#JSON-data-encoding_002fdecoding">JSON data encoding/decoding</a></td><td>&nbsp;&nbsp;</td><td align="left" valign="top">
++</td></tr>
+ <tr><td align="left" valign="top">&bull; <a href="Character-Class-Functions.html#Character-Class-Functions">Character Class Functions</a>:</td><td>&nbsp;&nbsp;</td><td align="left" valign="top">
+ </td></tr>
+ <tr><th colspan="3" align="left" valign="top"><pre class="menu-comment">
+-- 
+2.27.0
+

@@ -1,0 +1,143 @@
+Backport changes to include `rapidjson` from master branch e54cda12b8c9 (10.05.2021). C.f. 15ad3e21dc17
+
+---
+ dist-files.mk                      |  2 ++
+ index.html                         |  4 +++
+ src/rapidjson-1-prettywriter.patch | 56 ++++++++++++++++++++++++++++++
+ src/rapidjson.mk                   | 32 +++++++++++++++++
+ src/release-octave.mk              |  2 +-
+ 5 files changed, 95 insertions(+), 1 deletion(-)
+ create mode 100644 src/rapidjson-1-prettywriter.patch
+ create mode 100644 src/rapidjson.mk
+
+diff --git a/dist-files.mk b/dist-files.mk
+index f9cc18c..7200f6f 100644
+--- a/dist-files.mk
++++ b/dist-files.mk
+@@ -627,6 +627,8 @@ SRC_FILES_1 := \
+   qwt.mk \
+   qwtplot3d-1-fixes.patch \
+   qwtplot3d.mk \
++  rapidjson-1-prettywriter.patch \
++  rapidjson.mk \
+   readline-1-binding.patch \
+   readline-1-display.patch \
+   readline-1-input.patch \
+diff --git a/index.html b/index.html
+index 7d2b540..ae541d3 100644
+--- a/index.html
++++ b/index.html
+@@ -2309,6 +2309,10 @@ USE_OSGPLUGIN(&lt;plugin2&gt;)
+         <td class="package">qwtplot3d</td>
+         <td class="website"><a href="http://qwtplot3d.sourceforge.net/">QwtPlot3D</a></td>
+     </tr>
++    <tr>
++        <td class="package">rapidjson</td>
++        <td class="website"><a href="https://rapidjson.org/">RapidJSON</a></td>
++    </tr>
+     <tr>
+         <td class="package">readline</td>
+         <td class="website"><a href="http://tiswww.case.edu/php/chet/readline/rltop.html">Readline</a></td>
+diff --git a/src/rapidjson-1-prettywriter.patch b/src/rapidjson-1-prettywriter.patch
+new file mode 100644
+index 0000000..3305634
+--- /dev/null
++++ b/src/rapidjson-1-prettywriter.patch
+@@ -0,0 +1,56 @@
++From ac0fc79c76fc92783d2a5267082a1f8f9c28df22 Mon Sep 17 00:00:00 2001
++From: Gustav <sir.gustav.the.coder@gmail.com>
++Date: Mon, 18 May 2020 14:06:39 +0200
++Subject: [PATCH] Fixes issue #1718
++
++---
++ include/rapidjson/writer.h | 4 ++--
++ 1 file changed, 2 insertions(+), 2 deletions(-)
++
++diff --git a/include/rapidjson/writer.h b/include/rapidjson/writer.h
++index e7fb873a4..51dd86d58 100644
++--- a/include/rapidjson/writer.h
+++++ b/include/rapidjson/writer.h
++@@ -283,6 +283,8 @@ class Writer {
++         os_->Flush();
++     }
++ 
+++    static const size_t kDefaultLevelDepth = 32;
+++
++ protected:
++     //! Information for each nested level
++     struct Level {
++@@ -291,8 +293,6 @@ class Writer {
++         bool inArray;       //!< true if in array, otherwise in object
++     };
++ 
++-    static const size_t kDefaultLevelDepth = 32;
++-
++     bool WriteNull()  {
++         PutReserve(*os_, 4);
++         PutUnsafe(*os_, 'n'); PutUnsafe(*os_, 'u'); PutUnsafe(*os_, 'l'); PutUnsafe(*os_, 'l'); return true;
++
++From d88be8ef1649eca4602348d1aab5c16c36f83d4f Mon Sep 17 00:00:00 2001
++From: Milo Yip <miloyip@gmail.com>
++Date: Mon, 27 Mar 2017 14:05:03 +0800
++Subject: [PATCH] Fix #905 unable to set writeFlags for PrettyWriter
++
++---
++ include/rapidjson/prettywriter.h   |  2 +-
++ test/unittest/prettywritertest.cpp | 43 ++++++++++++++++++++++++++++++
++ 2 files changed, 44 insertions(+), 1 deletion(-)
++
++diff --git a/include/rapidjson/prettywriter.h b/include/rapidjson/prettywriter.h
++index ef36a8c2a..98dfb3060 100644
++--- a/include/rapidjson/prettywriter.h
+++++ b/include/rapidjson/prettywriter.h
++@@ -47,7 +47,7 @@ enum PrettyFormatOptions {
++ template<typename OutputStream, typename SourceEncoding = UTF8<>, typename TargetEncoding = UTF8<>, typename StackAllocator = CrtAllocator, unsigned writeFlags = kWriteDefaultFlags>
++ class PrettyWriter : public Writer<OutputStream, SourceEncoding, TargetEncoding, StackAllocator, writeFlags> {
++ public:
++-    typedef Writer<OutputStream, SourceEncoding, TargetEncoding, StackAllocator> Base;
+++    typedef Writer<OutputStream, SourceEncoding, TargetEncoding, StackAllocator, writeFlags> Base;
++     typedef typename Base::Ch Ch;
++ 
++     //! Constructor
++
+diff --git a/src/rapidjson.mk b/src/rapidjson.mk
+new file mode 100644
+index 0000000..f5b8d35
+--- /dev/null
++++ b/src/rapidjson.mk
+@@ -0,0 +1,32 @@
++# This file is part of MXE.
++# See index.html for further information.
++
++PKG             := rapidjson
++$(PKG)_IGNORE   :=
++$(PKG)_VERSION  := 1.1.0
++$(PKG)_CHECKSUM := a3e0d043ad3c2d7638ffefa3beb30a77c71c869f
++$(PKG)_SUBDIR   := $(PKG)-$($(PKG)_VERSION)
++$(PKG)_FILE     := $($(PKG)_SUBDIR).tar.gz
++$(PKG)_URL      := https://github.com/Tencent/$(PKG)/archive/v$($(PKG)_VERSION).tar.gz
++$(PKG)_DEPS     :=
++
++define $(PKG)_UPDATE
++    $(WGET) -q -O- 'https://github.com/Tencent/$(PKG)/tags' | \
++    $(SED) -n 's|.*releases/tag/v\([^"]*\).*|\1|p' | $(SORT) -V | \
++    tail -1
++endef
++
++define $(PKG)_BUILD
++    mkdir '$(1).build'
++    cd '$(1).build' && \
++    cmake \
++        $(CMAKE_CCACHE_FLAGS) \
++        $(CMAKE_BUILD_SHARED_OR_STATIC) \
++        -DCMAKE_TOOLCHAIN_FILE='$(CMAKE_TOOLCHAIN_FILE)' \
++        -DRAPIDJSON_BUILD_DOC=Off \
++        -DRAPIDJSON_BUILD_EXAMPLES=Off \
++        -DRAPIDJSON_BUILD_TESTS=Off \
++        '$(1)'
++    $(MAKE) -C '$(1).build' -j '$(JOBS)' DESTDIR='$(3)' install
++endef
++
+-- 
+2.27.0
+

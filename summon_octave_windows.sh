@@ -116,11 +116,13 @@ apply_patches()
     patch -d $mxeroot -p1 < $scriptdir/windows_files/of-signal.mk.patch && \
 	rm $mxeroot/src/of-signal-1-fixes.patch && \
 	rm $mxeroot/src/of-signal-2-fixes.patch
+    patch -d $mxeroot -p0 < $scriptdir/windows_files/of-instrument-control.mk.patch
 
     # patch pkg-build.py
 
     patch -d $mxeroot -p1 < $scriptdir/windows_files/4eae7db624e8.cset
     patch -d $mxeroot -p1 < $scriptdir/windows_files/Makefile.in-pkg-install.patch
+    patch -d $mxeroot -p1 < $scriptdir/windows_files/rapidjson.patch
 
     # copy remaining patches to mxe-root src folder
 
@@ -153,6 +155,12 @@ apply_patches()
 
     cp $scriptdir/common_files/version-rcfile.patch \
 	$mxeroot/src/release-octave-10-version-rcfile.patch
+	
+	cp $scriptdir/common_files/jsonencode_jsondecode.patch \
+	$mxeroot/src/release-octave-11-jsonencode_jsondecode.patch
+
+	cp $scriptdir/common_files/of-instrument-control-1-fixes.patch \
+	$mxeroot/src	
 }
 
 

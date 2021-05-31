@@ -347,15 +347,15 @@ build_gl2ps()
 
 build_qt()
 {
-    local ver=5.9.7
+    local ver=5.12.8
     local _vermm=${ver%.*}
 
-    fetch_src http://download.qt.io/official_releases/qt/$_vermm/$ver/submodules/qtbase-opensource-src-$ver.tar.xz
-    fetch_src http://download.qt.io/official_releases/qt/$_vermm/$ver/submodules/qttools-opensource-src-$ver.tar.xz
+    fetch_src http://download.qt.io/official_releases/qt/$_vermm/$ver/submodules/qtbase-everywhere-src-$ver.tar.xz
+    fetch_src http://download.qt.io/official_releases/qt/$_vermm/$ver/submodules/qttools-everywhere-src-$ver.tar.xz
     
 
     enter_builddir qtbase
-    $srcroot/qtbase-opensource-src-$ver/configure \
+    $srcroot/qtbase-everywhere-src-$ver/configure \
     	--prefix=$qtroot \
     	-opensource -confirm-license \
     	-release \
@@ -370,7 +370,7 @@ build_qt()
 
 
     enter_builddir qttools
-    $qtroot/bin/qmake $srcroot/qttools-opensource-src-$ver
+    $qtroot/bin/qmake $srcroot/qttools-everywhere-src-$ver
 
     do_make
     do_make install
@@ -397,12 +397,35 @@ build_glpk()
 }
 
 
+build_rapidjson() 
+{
+    local ver=1.1.0
+
+    fetch_src https://github.com/Tencent/rapidjson/archive/v$ver.tar.gz
+
+    patch -p1 -d $srcroot/rapidjson-$ver < $scriptdir/common_files/rapidjson_prettywriter.patch
+
+    enter_builddir rapidjson
+    cmake $srcroot/rapidjson-$ver \
+	-DCMAKE_BUILD_TYPE=Release \
+	-DCMAKE_INSTALL_PREFIX=$instroot \
+	-DRAPIDJSON_BUILD_DOC=OFF \
+	-DRAPIDJSON_BUILD_EXAMPLES=OFF \
+	-DRAPIDJSON_BUILD_TESTS=OFF \
+	    2>&1 | tee conflog.txt
+    
+    do_make
+    do_make install
+}
+
+
 patch_octave()
 {
     patch -p1 -d $srcroot/octave-$octver < $rootdir/common_files/bug_49053_1.patch
     patch -p1 -d $srcroot/octave-$octver < $rootdir/common_files/bug_50025_1.patch
     patch -p1 -d $srcroot/octave-$octver < $rootdir/common_files/source_file.patch
     patch -p1 -d $srcroot/octave-$octver < $rootdir/common_files/eval_string_reader.patch
+    patch -p1 -d $srcroot/octave-$octver < $rootdir/common_files/jsonencode_jsondecode.patch
 
     patch -p1 -d $srcroot/octave-$octver < $rootdir/common_files/0cedd1e23c1f.cset
     patch -p1 -d $srcroot/octave-$octver < $rootdir/common_files/377f069841c1.cset
@@ -605,11 +628,19 @@ install_forge_packages()
 {
     local ctrlpack=control-3.2.0.tar.gz
     local signalpack=signal-1.4.1.tar.gz
+    local instrumentpack=instrument-control-0.7.0.tar.gz
     
     ( cd $srcroot \
 	&& curl -L -o $ctrlpack   "https://octave.sourceforge.io/download.php?package=$ctrlpack" \
-	&& curl -L -o $signalpack "https://octave.sourceforge.io/download.php?package=$signalpack" )
+	&& curl -L -o $signalpack "https://octave.sourceforge.io/download.php?package=$signalpack" \
+	&& curl -L -o $instrumentpack "https://octave.sourceforge.io/download.php?package=$instrumentpack" )
 
+    # patch instrument-control package before installing
+    tar -C $srcroot -xf $srcroot/$instrumentpack
+    rm $srcroot/$instrumentpack
+    patch -p1 -d $srcroot/${instrumentpack%.tar.gz} < $scriptdir/common_files/of-instrument-control-1-fixes.patch
+    tar -C $srcroot -czf $srcroot/$instrumentpack ${instrumentpack%.tar.gz}
+    rm -rf $srcroot/${instrumentpack%.tar.gz}
 
     local prefix_setup_code=$(cat <<-EOF
 	pkg_prefix = fullfile (OCTAVE_HOME (), 'share', 'octave', 'packages');
@@ -631,6 +662,7 @@ EOF
 
 	pkg ('install', '$srcroot/$ctrlpack',   '-global', '-verbose')
 	pkg ('install', '$srcroot/$signalpack', '-global', '-verbose')
+	pkg ('install', '$srcroot/$instrumentpack', '-global', '-verbose')
 
 	setenv ('CXXFLAGS', old_cxx_flags)
 
@@ -692,6 +724,8 @@ container_entrypoint()
     build_gl2ps
 
     build_glpk
+    
+    build_rapidjson
 
     build_qt
 
