@@ -226,7 +226,7 @@ build_pcre()
 {
     local ver=8.43
 
-    fetch_src https://ftp.pcre.org/pub/pcre/pcre-8.43.tar.gz
+    fetch_src https://sourceforge.net/projects/pcre/files/pcre/$ver/pcre-$ver.tar.gz
 
     enter_builddir pcre
     $srcroot/pcre-$ver/configure \

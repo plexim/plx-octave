@@ -1,0 +1,16 @@
+diff --git a/libinterp/corefcn/gl-render.cc b/libinterp/corefcn/gl-render.cc
+index 55eaf60..d127b26 100644
+--- a/libinterp/corefcn/gl-render.cc
++++ b/libinterp/corefcn/gl-render.cc
+@@ -3989,7 +3989,7 @@ namespace octave
+     else
+       glLineStipple (1, static_cast<unsigned short> (0x0000));
+ 
+-    if (solid && ! use_stipple)
++    if (solid /*&& ! use_stipple*/)
+       glDisable (GL_LINE_STIPPLE);
+     else
+       glEnable (GL_LINE_STIPPLE);
+-- 
+2.31.0
+

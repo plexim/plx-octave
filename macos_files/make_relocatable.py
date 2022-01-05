@@ -89,7 +89,7 @@ def process_file(fname, rpaths, visited):
                 continue
 
             new_link_name = os.path.join('@rpath', os.path.basename(f))
-            os.system('install_name_tool -change {} {} {}'.format(original_link_name, new_link_name, current_file))
+            os.system('install_name_tool -change {} {} {}'.format(original_link_name, new_link_name, os.path.relpath(current_file)))
             
             if f in visited:
                 continue
@@ -105,7 +105,7 @@ def process_file(fname, rpaths, visited):
                 rpaths.add(os.path.dirname(f))
                 loc = f
 
-            os.system('install_name_tool -id {} {}'.format(new_link_name, loc))
+            os.system('install_name_tool -id {} {}'.format(new_link_name, os.path.relpath(loc)))
             descend(loc, visited, rpaths)
 
     descend(fname, visited, rpaths)
@@ -123,7 +123,7 @@ def clear_all_rpaths(f):
     cmd = r"/usr/bin/otool -l {} | grep LC_RPATH -A2 | grep path | sed 's/path//;s/([^)]*)//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'".format(f)
     otool = subprocess.Popen(args=cmd, shell=True, stdout=subprocess.PIPE)
     for p in otool.stdout:
-        os.system(r'install_name_tool -delete_rpath {} {}'.format(p.strip(), f))
+        os.system(r'install_name_tool -delete_rpath {} {}'.format(p.strip(), os.path.relpath(f)))
 
 
 def executables():
@@ -137,7 +137,7 @@ def add_rpaths(f, rpaths):
     for p in rpaths:
         relpath = os.path.relpath(p, os.path.dirname(f))
         rpath = os.path.join(r'@executable_path', relpath)
-        os.system(r'install_name_tool -add_rpath {} {}'.format(rpath, f))
+        os.system(r'install_name_tool -add_rpath {} {}'.format(rpath, os.path.realpath(f)))
 
         
 

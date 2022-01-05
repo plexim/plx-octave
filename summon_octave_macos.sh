@@ -23,9 +23,16 @@ qtroot=$instroot/qt5
 
 depsdir=lib
 
+target_arch=$( uname -m )
+
 
 # warning: this has to be compatible with the chosen Qt version
-macosx_deployment_target=10.13
+if [ "$target_arch" == "arm64" ]
+then 
+    macosx_deployment_target=11.0
+else
+    macosx_deployment_target=10.13
+fi
 export MACOSX_DEPLOYMENT_TARGET=$macosx_deployment_target
 
 
@@ -191,14 +198,23 @@ build_buildtools()
 build_gcc()
 {
     local ver=9.2.0
+    local fetch_url=http://ftp.gnu.org/gnu/gcc/gcc-$ver/gcc-$ver.tar.gz
+    local src_dir=gcc-$ver
     
-    fetch_src http://ftp.gnu.org/gnu/gcc/gcc-$ver/gcc-$ver.tar.gz
+    if [ "$target_arch" == "arm64" ]
+    then 
+        ver=11.1.0-arm-20210504
+        fetch_url=https://github.com/fxcoudert/gcc/archive/refs/tags/gcc-$ver.tar.gz
+        src_dir=gcc-gcc-$ver
+    fi
 
-    ( cd $srcroot/gcc-$ver && \
+    fetch_src $fetch_url
+
+    ( cd $srcroot/$src_dir && \
 	./contrib/download_prerequisites )
 
     enter_builddir gcc
-    $srcroot/gcc-$ver/configure \
+    $srcroot/$src_dir/configure \
     	--prefix=$instroot \
     	--enable-languages=c,c++,fortran \
     	--disable-multilib \
@@ -262,7 +278,7 @@ build_pcre()
 {
     local ver=8.43
 
-    fetch_src https://ftp.pcre.org/pub/pcre/pcre-8.43.tar.gz
+    fetch_src https://sourceforge.net/projects/pcre/files/pcre/$ver/pcre-$ver.tar.gz
 
     enter_builddir pcre
     $srcroot/pcre-$ver/configure \
@@ -283,6 +299,8 @@ build_termcap()
     local ver=1.3.1
 
     fetch_src http://ftp.gnu.org/gnu/termcap/termcap-$ver.tar.gz
+
+    patch -p1 -d $srcroot/termcap-$ver < $scriptdir/macos_files/termcap.patch
 
     enter_builddir termcap
     cp -a $srcroot/termcap-$ver/* .
@@ -346,6 +364,8 @@ build_fontconfig()
     local ver=2.13.92
 
     fetch_src https://www.freedesktop.org/software/fontconfig/release/fontconfig-$ver.tar.gz
+    
+    patch -p1 -d $srcroot/fontconfig-$ver < $scriptdir/macos_files/fontconfig.patch
 
     enter_builddir fontconfig
     $srcroot/fontconfig-$ver/configure \
@@ -384,7 +404,7 @@ build_gl2ps()
 
 build_qt()
 {
-    local ver=5.12.8
+    local ver=5.12.11
     local _vermm=${ver%.*}
 
     fetch_src http://download.qt.io/official_releases/qt/$_vermm/$ver/submodules/qtbase-everywhere-src-$ver.tar.xz
@@ -405,6 +425,7 @@ build_qt()
     	-no-rpath \
     	-no-dbus -no-compile-examples -nomake examples -no-sql-mysql -no-feature-gestures \
     	-make libs -make tools \
+    	QMAKE_APPLE_DEVICE_ARCHS=$target_arch \
     2>&1 | tee conflog.txt
     
     do_make
@@ -482,6 +503,14 @@ patch_octave()
 	| sed -e 's|<SUBSTITUTE_ME_PLIST_FILE>|'$scriptdir/macos_files/octave-info.plist'|' \
 	| patch -p1 -d $srcroot/octave-$octver
     patch -p1 -d $srcroot/octave-$octver < $scriptdir/macos_files/disable_insert_text_button.patch
+
+    if [ "$target_arch" == "arm64" ]
+    then
+		# There seems to be an issue with the Apple M1 OpenGL driver when using glLineStipple
+		# (c.f. https://forum.jogamp.org/jogl-message-macOS-BigSur-arm-td4041124.html).
+		# This patch restricts the use of line stipple to only when it is really needed.
+        patch -p1 -d $srcroot/octave-$octver < $scriptdir/macos_files/octave_arm64_line_stipple.patch
+	fi
 }
 
 
@@ -540,6 +569,15 @@ build_octave()
    	2>&1 | tee conflog.txt
 
     do_make
+
+    if [ "$target_arch" == "arm64" ]
+    then
+        # Workaround for some rpath improvements/changes that only seem to affect the GCC11-arm64 fork so far (c.f. https://trac.macports.org/ticket/63115#comment:14)
+        # This makes the tests run without problems. 'gather_dependencies' dependencies makes the executable relocatable later on anyway... 
+        install_name_tool -change @rpath/libgfortran.5.dylib $instroot/lib/libgfortran.5.dylib src/.libs/octave-cli
+        install_name_tool -change @rpath/libgfortran.5.dylib $instroot/lib/libgfortran.5.dylib src/.libs/octave-gui
+	fi
+
     do_make check
     do_make install
 }
@@ -597,6 +635,7 @@ build_ghostscript()
 	--without-x \
 	--without-libidn \
 	--with-system-libtiff \
+	CFLAGS="-DPNG_ARM_NEON_OPT=0" \
 	2>&1 | tee conflog.txt
     
     make -j$ncores GS_LIB_DEFAULT="" GS_DOCDIR="www.ghostscript.com/doc/$ver" 2>&1 | tee buildlog.txt
