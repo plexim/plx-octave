@@ -239,8 +239,8 @@ setup_compilers()
 
 setup_env()
 {
-    export PATH=$instroot/bin:$qtroot/bin:$brewroot/bin:/bin:/sbin:/usr/bin:/usr/sbin
-    export PKG_CONFIG_PATH=$instroot/lib/pkgconfig:$instroot/lib64/pkgconfig:$qtroot/lib/pkgconfig:/usr/lib/pkgconfig:/lib64/pkgconfig:/usr/lib/pkgconfig
+    export PATH=$instroot/bin:$qtroot/bin:/bin:/sbin:/usr/bin:/usr/sbin
+    export PKG_CONFIG_PATH=$instroot/lib/pkgconfig:$instroot/lib64/pkgconfig:$qtroot/lib/pkgconfig
 
     export LDFLAGS="-L$instroot/lib -L$instroot/lib64 -L$qtroot/lib"
     export CPPFLAGS="-I$instroot/include -I$qtroot/include"
@@ -610,6 +610,13 @@ build_libtiff()
     enter_builddir libtiff
     $srcroot/tiff-$ver/configure \
 	--prefix=$instroot \
+    --disable-jpeg \
+    --disable-old-jpeg \
+    --disable-jbig \
+    --disable-lzma \
+    --disable-zstd \
+    --disable-webp \
+    --disable-jpeg12 \
 	--without-x \
 	2>&1 | tee conflog.txt
 
@@ -885,6 +892,30 @@ package_octave()
 }
 
 
+check_deps()
+{
+    echo ""
+    echo "Checking dependencies..."
+    echo ""
+
+    files=`find "$octprefix/bin" "$octprefix/lib" -type f`
+
+    for file in $files;
+    do
+        # dependencies starting with "@rpath", "/usr/lib", "/System/Library/Frameworks/" or "lib" are expected
+        result=`otool -L $file | grep '^\t' | grep -v '^\t@rpath/' | grep -v '^\t/usr/lib/' | grep -v '^\t/System/Library/Frameworks/' | grep -v '^\tlib' || :`
+        if [ ! -z "$result" ]
+        then
+            echo ">>> Unwanted dependencies in $file:"
+            echo "$result"
+        fi
+    done
+
+    echo ""
+    echo "Dependencies check finished!"
+}
+
+
 main()
 {
     mkdir -p $srcroot
@@ -924,6 +955,8 @@ main()
     build_ghostscript
     
     package_octave
+
+    check_deps
 }
 
 
